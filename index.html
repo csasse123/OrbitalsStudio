@@ -747,10 +747,15 @@
   body.mode-xtal #atomControls, body.mode-xtal #molControls { display: none; }
   body.mode-iso .right .caption, body.mode-xtal .right .caption { font-style: normal; }
 
+
+  #physLabChips button.on[data-phys="tdse"] { border-color:#38bdf8; color:#7dd3fc; }
+  #physLabChips button.on[data-phys="diff"] { border-color:#34d399; color:#6ee7b7; }
+  #physLabChips button.on[data-phys="spin"] { border-color:#f472b6; color:#f9a8d4; }
+  #physLabChips button.on[data-phys="vib"] { border-color:#fbbf24; color:#fcd34d; }
 </style>
 </head>
 <body>
-<div class="build" id="build">v1.9.0</div>
+<div class="build" id="build">v2.0.0</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -946,11 +951,43 @@
     (radial: n−ℓ−1 shells; angular: ℓ nodal planes/cones).
   </p>
 
+  <h2>Physics lab</h2>
+  <p style="font-size:0.62rem;line-height:1.35;color:#8b9bb0;margin:0 0 6px">
+    Highest-leverage views: TDSE packets, radial P(r), density difference, E/B fields, spin, vibration.
+  </p>
+  <div class="chips" id="physLabChips">
+    <button type="button" data-phys="off" class="on">Off</button>
+    <button type="button" data-phys="tdse">TDSE packet</button>
+    <button type="button" data-phys="diff">Density Δρ</button>
+    <button type="button" data-phys="spin">Spin α/β</button>
+    <button type="button" data-phys="vib">Vibration</button>
+  </div>
+  <label class="row">E-field F_z
+    <input id="efield" type="range" min="0" max="1" step="0.01" value="0" />
+    <span class="val" id="efieldVal">0.00</span>
+  </label>
+  <label class="row">B-field (Zeeman)
+    <input id="bfield" type="range" min="0" max="1" step="0.01" value="0" />
+    <span class="val" id="bfieldVal">0.00</span>
+  </label>
+  <label class="row">Vib amp Q
+    <input id="vibAmp" type="range" min="0" max="1" step="0.01" value="0.35" />
+    <span class="val" id="vibAmpVal">0.35</span>
+  </label>
+  <div class="config-line" id="physLabMeta" style="font-size:0.62rem;margin:4px 0 8px">lab off · eigenstate</div>
+  <div id="radialPlotWrap" style="display:none;margin:8px 0;padding:8px;background:rgba(0,0,0,0.28);border-radius:10px;border:1px solid rgba(120,150,200,0.12)">
+    <div style="font:600 0.62rem JetBrains Mono,monospace;color:#6ee7b7;margin-bottom:4px">P(r) = 4πr²R²(r) · side panel</div>
+    <canvas id="radialPlot2d" width="240" height="110" style="width:100%;height:auto;display:block;border-radius:6px;background:#0a0e16"></canvas>
+    <div style="display:flex;justify-content:space-between;font:500 0.55rem JetBrains Mono,monospace;color:#64748b;margin-top:2px">
+      <span id="radialPlotX0">0</span><span>r / a₀</span><span id="radialPlotX1">…</span>
+    </div>
+  </div>
+
   <h2>Display</h2>
   <label class="row"><input id="nucleus" type="checkbox" checked /> nucleus</label>
   <label class="row"><input id="axes" type="checkbox" /> axes</label>
   <label class="row"><input id="grid" type="checkbox" /> grid planes</label>
-  <label class="row"><input id="radial" type="checkbox" /> radial 4πr²R²</label>
+  <label class="row"><input id="radial" type="checkbox" checked /> radial 4πr²R²</label>
   <label class="row"><input id="autoRotate" type="checkbox" checked /> auto-rotate</label>
   <button type="button" class="primary" id="btnTour">Tour this element</button>
   <button type="button" id="btnNextEl" style="margin-top:6px">Next →</button>
@@ -1046,7 +1083,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v1.9.0";
+const BUILD = "v2.0.0";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2293,6 +2330,10 @@ uniform float uAutoGain;   // auto-pop: per-orbital gain normalization (JS probe
 uniform float uDensCut;    // auto-pop: adaptive haze floor in field units
 uniform float uVibrance;   // saturation lift (1 = neutral)
 uniform float uPhaseTime; // animated phase / face colors
+uniform float uPhysMode; // 0 off, 1 tdse, 2 densdiff, 3 spin, 4 vib-tag
+uniform float uFieldE;   // Stark Fz (a.u. scaled)
+uniform float uFieldB;   // Zeeman scale
+uniform float uTdseT;    // TDSE time
 uniform float uClip;
 uniform float uSteps;
 uniform float uColorMode;
@@ -2357,14 +2398,84 @@ void main() {
       mol_field(pos, dens, ph1);
       psiPhase = ph1;
       densMul = uDensity * 28.0 * uAutoGain;
+      // Density difference Δρ = ρ_mol − Σ ρ_atom (bonding >0 lights, antibonding <0)
+      if (uPhysMode > 1.5 && uPhysMode < 2.5) {
+        float rhoA = 0.0;
+        int nA = int(uNAtoms + 0.5);
+        for (int i = 0; i < 16; i++) {
+          if (i >= nA) break;
+          vec3 d = pos - uAtomPos[i];
+          float r = length(d);
+          float zi = max(uAtomZ[i], 0.5);
+          float zeta = max(0.45, zi * 0.55);
+          float psiA = sqrt((zeta*zeta*zeta) / 3.14159265) * exp(-zeta * r);
+          float occ = max(uAtomOcc[i], 0.25);
+          rhoA += occ * psiA * psiA;
+        }
+        float delta = dens - rhoA;
+        dens = abs(delta);
+        psiPhase = delta; // sign → phase color (bond+/anti−)
+      }
     } else {
-      dens = psi_dens_phase(n, l, m, pos, uZ, uBasis, ph1);
-      psiPhase = ph1;
-      if (uMorph > 0.001) {
-        float ph2;
-        float dens2 = psi_dens_phase(n2, l2, m2, pos, uZ, uBasis, ph2);
-        dens = mix(dens, dens2, uMorph);
-        psiPhase = mix(ph1, ph2, uMorph);
+      // TDSE wave packet: c1|nℓm⟩ + c2|n+1⟩ + c3|n+2⟩ with time phases
+      if (uPhysMode > 0.5 && uPhysMode < 1.5) {
+        float re = 0.0, im = 0.0;
+        // coefficients: mostly n, some n+1, some n+2 (same ℓ,m when allowed)
+        float c0 = 0.70, c1 = 0.55, c2 = 0.40;
+        int nn0 = n;
+        int nn1 = min(n + 1, 12);
+        int nn2 = min(n + 2, 14);
+        float ph;
+        float d0 = psi_dens_phase(nn0, l, m, pos, uZ, uBasis, ph);
+        // recover amplitude ~ sqrt(dens) * sign from phase scalar
+        float a0 = sign(ph) * sqrt(max(d0, 0.0));
+        float E0 = -1.0 / (float(nn0) * float(nn0)); // Rydberg units (scaled)
+        float t = uTdseT;
+        re += c0 * a0 * cos(E0 * t * 12.0);
+        im += c0 * a0 * sin(E0 * t * 12.0);
+        if (nn1 > nn0 && l < nn1) {
+          float ph1b;
+          // Stark: sample at slightly shifted z
+          vec3 pS = pos - vec3(0.0, 0.0, uFieldE * 0.8);
+          float d1 = psi_dens_phase(nn1, l, m, pS, uZ, uBasis, ph1b);
+          float a1 = sign(ph1b) * sqrt(max(d1, 0.0));
+          float E1 = -1.0 / (float(nn1) * float(nn1));
+          re += c1 * a1 * cos(E1 * t * 12.0);
+          im += c1 * a1 * sin(E1 * t * 12.0);
+        }
+        if (nn2 > nn1 && l < nn2) {
+          float ph2b;
+          float d2 = psi_dens_phase(nn2, l, m, pos, uZ, uBasis, ph2b);
+          float a2 = sign(ph2b) * sqrt(max(d2, 0.0));
+          float E2 = -1.0 / (float(nn2) * float(nn2));
+          re += c2 * a2 * cos(E2 * t * 12.0);
+          im += c2 * a2 * sin(E2 * t * 12.0);
+        }
+        dens = re * re + im * im;
+        psiPhase = re;
+      } else {
+        // Stark visual: evaluate orbital at polarized coordinate
+        vec3 pS = pos - vec3(0.0, 0.0, uFieldE * 1.2 * float(n) / max(uZ, 0.5));
+        dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph1);
+        psiPhase = ph1;
+        // Zeeman: m-dependent energy tag → slight density modulation by m
+        if (uFieldB > 0.001) {
+          float mz = float(m);
+          dens *= 1.0 + 0.15 * uFieldB * mz * (pos.z / max(length(pos), 0.2));
+          dens = abs(dens);
+        }
+        if (uMorph > 0.001) {
+          float ph2;
+          float dens2 = psi_dens_phase(n2, l2, m2, pS, uZ, uBasis, ph2);
+          dens = mix(dens, dens2, uMorph);
+          psiPhase = mix(ph1, ph2, uMorph);
+        }
+      }
+      // Spin density: α (m-biased +z) / β (−z) as signed phase for coloring
+      if (uPhysMode > 2.5 && uPhysMode < 3.5) {
+        float spin = tanh(pos.z * 0.35 + float(m) * 0.25);
+        psiPhase = spin * sqrt(max(dens, 0.0));
+        // keep dens as total; color via phase shows α/β
       }
     }
     // Adaptive haze floor: the diffuse low-density fog that kills contrast at
@@ -2754,6 +2865,10 @@ const volumeUniforms = {
   uDensCut: { value: 0 },
   uVibrance: { value: 0.94 },
   uPhaseTime: { value: 0 },
+  uPhysMode: { value: 0 },
+  uFieldE: { value: 0 },
+  uFieldB: { value: 0 },
+  uTdseT: { value: 0 },
   uClip: { value: 1 },
   uSteps: { value: 110 },
   uColorMode: { value: 0 },
@@ -2978,7 +3093,7 @@ let state = {
   molPhys: null, // cached levels/states for current molecule
   pesMode: "off", // off | morse | lj | h2osurf
   ljDimer: "ar2",
-  showRadial: false,
+  showRadial: true,
 };
 
 function renderBoxHalf(n, Z = activeZ) {
@@ -5468,6 +5583,18 @@ function animate() {
     volumeUniforms.uPhaseTime.value = (volumeUniforms.uPhaseTime.value + dt * 0.85) % 1000;
     needsRender = true;
   }
+  // TDSE wave-packet clock
+  if (state.physLab === "tdse" && volumeUniforms.uTdseT) {
+    state.tdseT = (state.tdseT || 0) + dt;
+    volumeUniforms.uTdseT.value = state.tdseT;
+    needsRender = true;
+    if ((Math.floor(state.tdseT * 8) % 8) === 0) updatePhysLabMeta();
+  }
+  // Nuclear vibration coupled to orbital field
+  if (state.vibActive && state.physLab === "vib") {
+    applyVibrationFrame(dt);
+    needsRender = true;
+  }
 
   // morph ease-out (uniform animation → keep rendering while active)
   if (volumeUniforms.uMorph && volumeUniforms.uMorph.value > 0) {
@@ -5897,6 +6024,208 @@ function initStudioExtras(){
   buildCrystalList();
 }
 
+
+// =============================================================================
+// PHYSICS LAB v2.0 — TDSE, radial 2D, Δρ, E/B fields, spin, vibration
+// =============================================================================
+
+function setPhysLabMode(mode) {
+  state.physLab = mode || "off";
+  document.querySelectorAll("#physLabChips button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.phys === state.physLab);
+  });
+  const map = { off: 0, tdse: 1, diff: 2, spin: 3, vib: 4 };
+  volumeUniforms.uPhysMode.value = map[state.physLab] ?? 0;
+  // Density difference only meaningful for molecules
+  if (state.physLab === "diff" && state.target !== "molecule") {
+    // auto-switch hint
+    if ($("physLabMeta")) $("physLabMeta").textContent = "Δρ needs a molecule — open Main molecules first";
+  }
+  if (state.physLab === "vib" && state.target === "molecule") {
+    state.vibActive = true;
+  } else {
+    state.vibActive = state.physLab === "vib";
+  }
+  updatePhysLabMeta();
+  // force denser sampling for TDSE interference structure
+  if (state.physLab === "tdse") {
+    const q = Math.max(parseInt($("quality")?.value || 100, 10), 120);
+    if ($("quality")) { $("quality").value = q; $("qualityVal").textContent = String(q); }
+    applyQualityTier();
+  }
+  rebuildPoints();
+  if (state.showRadial) { rebuildRadial(); drawRadialPlot2D(); }
+  markDirty();
+}
+
+function updatePhysLabMeta() {
+  const el = $("physLabMeta");
+  if (!el) return;
+  const F = volumeUniforms.uFieldE.value;
+  const B = volumeUniforms.uFieldB.value;
+  const mode = state.physLab || "off";
+  const labels = {
+    off: "eigenstate",
+    tdse: "TDSE wave packet · watch interference / revival",
+    diff: "Δρ = ρ_mol − Σρ_atom · bond+/anti−",
+    spin: "spin density α/β (open-shell cartoon)",
+    vib: "nuclear vibration · orbitals follow nuclei",
+  };
+  el.textContent = (labels[mode] || mode) +
+    ` · Fz=${F.toFixed(2)} · B=${B.toFixed(2)}` +
+    (mode === "tdse" ? ` · t=${(state.tdseT || 0).toFixed(2)}` : "");
+}
+
+function drawRadialPlot2D() {
+  const wrap = $("radialPlotWrap");
+  const canvas = $("radialPlot2d");
+  if (!wrap || !canvas) return;
+  const show = state.showRadial && state.target === "atom" && state.physLab !== "vib";
+  wrap.style.display = show ? "block" : "none";
+  if (!show) return;
+  const n = state.n, l = state.l;
+  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, 40);
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // grid
+  ctx.strokeStyle = "rgba(100,120,150,0.25)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = (H - 12) * i / 4 + 4;
+    ctx.beginPath(); ctx.moveTo(28, y); ctx.lineTo(W - 6, y); ctx.stroke();
+  }
+  const NP = 200;
+  let pMax = 0;
+  const P = new Float32Array(NP + 1);
+  for (let i = 0; i <= NP; i++) {
+    const r = (rMax * i) / NP;
+    const R = radialR(n, l, r, activeZ);
+    P[i] = 4 * Math.PI * r * r * R * R;
+    if (P[i] > pMax) pMax = P[i];
+  }
+  if (pMax <= 0) return;
+  // fill under curve
+  ctx.beginPath();
+  for (let i = 0; i <= NP; i++) {
+    const x = 28 + ((W - 34) * i) / NP;
+    const y = (H - 12) - ((H - 20) * P[i]) / pMax;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W - 6, H - 12);
+  ctx.lineTo(28, H - 12);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(74,222,128,0.15)";
+  ctx.fill();
+  // stroke
+  ctx.beginPath();
+  for (let i = 0; i <= NP; i++) {
+    const x = 28 + ((W - 34) * i) / NP;
+    const y = (H - 12) - ((H - 20) * P[i]) / pMax;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "#4ade80";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // radial nodes
+  let prevS = Math.sign(radialR(n, l, 1e-4, activeZ));
+  ctx.fillStyle = "#f87171";
+  for (let i = 1; i <= NP; i++) {
+    const r = (rMax * i) / NP;
+    const s = Math.sign(radialR(n, l, r, activeZ));
+    if (s !== 0 && prevS !== 0 && s !== prevS) {
+      const x = 28 + ((W - 34) * i) / NP;
+      ctx.beginPath(); ctx.arc(x, H - 12, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    if (s !== 0) prevS = s;
+  }
+  // labels
+  ctx.fillStyle = "#8b9bb0";
+  ctx.font = "10px JetBrains Mono, monospace";
+  ctx.fillText("P(r)", 4, 12);
+  if ($("radialPlotX0")) $("radialPlotX0").textContent = "0";
+  if ($("radialPlotX1")) $("radialPlotX1").textContent = rMax.toFixed(1);
+}
+
+// Vibration: displace molecule nuclei along principal bond / COM stretch
+function applyVibrationFrame(dt) {
+  if (!state.vibActive || state.target !== "molecule" || !state.molecule) return;
+  const amp = parseFloat($("vibAmp")?.value || 0.35);
+  state.vibPhase = (state.vibPhase || 0) + dt * 2.8; // ~0.45 Hz
+  const Q = amp * Math.sin(state.vibPhase);
+  // scale about COM like nuclear stretch
+  const base = state.bondScale || 1;
+  const scale = Math.max(0.15, base * (1 + 0.35 * Q));
+  // temporarily apply without rewriting nuc mode
+  const mol = state.molecule;
+  const atoms = scaledAtoms(mol, scale);
+  rebuildMolMeshes(atoms);
+  pushMolUniforms(atoms);
+  // keep orbitals following: rebuild points lightly every few frames
+  state._vibFrame = (state._vibFrame || 0) + 1;
+  if (state._vibFrame % 4 === 0) rebuildPoints();
+  markDirty();
+}
+
+function initPhysicsLab() {
+  state.physLab = "off";
+  state.tdseT = 0;
+  state.vibPhase = 0;
+  state.vibActive = false;
+  volumeUniforms.uPhysMode.value = 0;
+  volumeUniforms.uFieldE.value = 0;
+  volumeUniforms.uFieldB.value = 0;
+  volumeUniforms.uTdseT.value = 0;
+
+  $("physLabChips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-phys]");
+    if (!b) return;
+    setPhysLabMode(b.dataset.phys);
+  });
+
+  bindSlider("efield", "efieldVal", (v) => v.toFixed(2), (v) => {
+    volumeUniforms.uFieldE.value = v;
+    updatePhysLabMeta();
+    // re-probe points for Stark-shifted density
+    if (state.mode === "points" || state.mode === "volume") rebuildPoints();
+    markDirty();
+  });
+  bindSlider("bfield", "bfieldVal", (v) => v.toFixed(2), (v) => {
+    volumeUniforms.uFieldB.value = v;
+    updatePhysLabMeta();
+    if (state.mode === "points" || state.mode === "volume") rebuildPoints();
+    markDirty();
+  });
+  bindSlider("vibAmp", "vibAmpVal", (v) => v.toFixed(2), (v) => {
+    updatePhysLabMeta();
+  });
+
+  // radial checkbox already bound? ensure plot updates
+  const rad = $("radial");
+  if (rad) {
+    rad.checked = !!state.showRadial;
+    rad.addEventListener("change", () => {
+      state.showRadial = rad.checked;
+      rebuildRadial();
+      drawRadialPlot2D();
+      markDirty();
+    });
+  }
+  // initial radial if on
+  if (state.showRadial) {
+    setTimeout(() => { rebuildRadial(); drawRadialPlot2D(); }, 100);
+  }
+  updatePhysLabMeta();
+}
+
+// Hook setQuantum to refresh radial plot
+const _setQuantumPhys = setQuantum;
+setQuantum = function (n, l, m, morph = true) {
+  _setQuantumPhys(n, l, m, morph);
+  if (state.showRadial) drawRadialPlot2D();
+  updatePhysLabMeta();
+};
+
 // ---------- Init: Hydrogen 1s, periodic table H–Og ----------
 try {
   state.mode = "volume";
@@ -5952,7 +6281,7 @@ try {
 
   animate();
   window.__H.ready = true;
-  console.log(BUILD, "ready — atoms + molecules + isotopes + crystals + sound |", MOLECULES.length, "molecules");
+  console.log(BUILD, "ready — TDSE / Δρ / fields / spin / vib |", MOLECULES.length, "molecules");
 } catch (err) {
   console.error(err);
   const el = $("narration");
