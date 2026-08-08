@@ -772,7 +772,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.1.1</div>
+<div class="build" id="build">v2.1.2</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -1012,6 +1012,14 @@
   <label class="row"><input id="axes" type="checkbox" /> axes</label>
   <label class="row"><input id="grid" type="checkbox" /> grid planes</label>
   <label class="row"><input id="radial" type="checkbox" checked /> radial P(r) 3D (spherical)</label>
+  <label class="row" id="radialOpacityRow" title="Transparency of the spherical P(r) overlay — keep low so the orbital cloud stays visible">
+    P(r) overlay opacity
+    <input id="radialOpacity" type="range" min="0.05" max="1" step="0.01" value="0.28" />
+    <span class="val" id="radialOpacityVal">0.28</span>
+  </label>
+  <div style="font:500 0.55rem JetBrains Mono,monospace;color:#94a3b8;margin:-2px 0 8px;line-height:1.35">
+    Low by default so |ψ|² cloud shows through. Raise to study the ridge alone.
+  </div>
   <label class="row"><input id="autoRotate" type="checkbox" checked /> auto-rotate</label>
   <button type="button" class="primary" id="btnTour" title="Guided walk: nℓm → Stark → Zeeman for this element">Tour this element</button>
   <button type="button" id="btnTourTable" style="margin-top:6px" title="Short stops on famous elements across the table">Tour famous elements</button>
@@ -1109,7 +1117,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.1.1";
+const BUILD = "v2.1.2";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -3226,6 +3234,8 @@ let state = {
   pesMode: "off", // off | morse | lj | h2osurf
   ljDimer: "ar2",
   showRadial: true,
+  /** Master opacity for the spherical P(r) overlay (surface/floor/rings). Keep low so |ψ|² shows. */
+  radialOpacity: 0.28,
 };
 
 function renderBoxHalf(n, Z = activeZ) {
@@ -4451,8 +4461,18 @@ function pAtSample(sample, r) {
   return ((P[i0] * (1 - u) + P[i1] * u) / pMax);
 }
 
+/** Tag material for live opacity updates from the P(r) overlay slider. */
+function tagRadialMat(mat, layer = "body", baseOpacity = 1) {
+  mat.transparent = true;
+  mat.depthWrite = false;
+  mat.userData.radialLayer = layer;
+  mat.userData.radialBase = baseOpacity;
+  mat.opacity = baseOpacity;
+  return mat;
+}
+
 /** Vertex-colored surface of revolution: (r,φ) → (r cosφ, r sinφ, h·P(r)). z-up atom frame. */
-function buildRadialRevolutionSurface(sample, height, nR = 72, nPhi = 48) {
+function buildRadialRevolutionSurface(sample, height, nR = 72, nPhi = 48, opacity = 0.28) {
   const { rMax, pMax } = sample;
   if (pMax <= 0) return null;
   const nV = (nR + 1) * (nPhi + 1);
@@ -4494,20 +4514,20 @@ function buildRadialRevolutionSurface(sample, height, nR = 72, nPhi = 48) {
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const mat = new THREE.MeshBasicMaterial({
+  const mat = tagRadialMat(new THREE.MeshBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: 0.78,
+    opacity,
     side: THREE.DoubleSide,
     depthWrite: false,
-  });
+  }), "surface", opacity);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = 2;
   return mesh;
 }
 
 /** Flat polar disk in xy: color = P(r) — 2D spherical (r, φ) map. */
-function buildRadialPolarFloor(sample, nR = 64, nPhi = 56) {
+function buildRadialPolarFloor(sample, nR = 64, nPhi = 56, opacity = 0.18) {
   const { rMax, pMax } = sample;
   if (pMax <= 0) return null;
   const nV = (nR + 1) * (nPhi + 1);
@@ -4545,22 +4565,93 @@ function buildRadialPolarFloor(sample, nR = 64, nPhi = 56) {
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.setIndex(indices);
-  const mat = new THREE.MeshBasicMaterial({
+  const mat = tagRadialMat(new THREE.MeshBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: 0.55,
+    opacity,
     side: THREE.DoubleSide,
     depthWrite: false,
-  });
+  }), "floor", opacity);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = 1;
   return mesh;
+}
+
+/** Transparent tube helper for radial meridians / baselines. */
+function radialTube(points, color, radius, opacity) {
+  const mesh = curveTube(points, color, radius);
+  if (mesh.material) {
+    tagRadialMat(mesh.material, "line", opacity);
+    mesh.material.color.setHex(color);
+  }
+  return mesh;
+}
+
+/**
+ * Apply master overlay opacity (0..1). Layer weights keep the ridge readable
+ * without blanking the orbital cloud at the default (low) setting.
+ */
+function applyRadialOverlayOpacity(master) {
+  const m = Math.max(0.02, Math.min(1, master));
+  state.radialOpacity = m;
+  // Relative weights at master=1; at master=0.28 surface ≈ 0.22, floor ≈ 0.12
+  const w = {
+    surface: 0.78,
+    floor: 0.42,
+    grid: 0.40,
+    line: 0.70,
+    peak: 0.95,
+    label: 1.0,
+    body: 0.65,
+  };
+  radialGroup.traverse((o) => {
+    const mat = o.material;
+    if (!mat) return;
+    const mats = Array.isArray(mat) ? mat : [mat];
+    for (const mm of mats) {
+      const layer = mm.userData?.radialLayer;
+      if (!layer) continue;
+      const base = w[layer] ?? mm.userData.radialBase ?? 0.6;
+      mm.transparent = true;
+      mm.depthWrite = false;
+      mm.opacity = Math.max(0.02, Math.min(1, m * base));
+      mm.needsUpdate = true;
+    }
+  });
+  // Soften sprite labels (sprites use material.opacity)
+  radialGroup.traverse((o) => {
+    if (o.isSprite && o.material) {
+      o.material.transparent = true;
+      o.material.opacity = Math.max(0.15, Math.min(1, 0.35 + 0.65 * m));
+      o.material.depthWrite = false;
+    }
+  });
+  markDirty();
+}
+
+function syncRadialOpacityUI() {
+  const row = $("radialOpacityRow");
+  const el = $("radialOpacity");
+  const lab = $("radialOpacityVal");
+  const on = !!(state.showRadial && state.target === "atom");
+  if (row) {
+    row.style.opacity = on ? "1" : "0.4";
+    row.title = on
+      ? "Transparency of the spherical P(r) overlay — low keeps the |ψ|² cloud visible"
+      : "Enable radial P(r) 3D to adjust overlay opacity";
+  }
+  if (el) {
+    el.disabled = !on;
+    el.value = String(state.radialOpacity ?? 0.28);
+  }
+  if (lab) lab.textContent = Number(state.radialOpacity ?? 0.28).toFixed(2);
 }
 
 function rebuildRadial() {
   clearGroupDeep(radialGroup);
   const show = state.showRadial && state.target === "atom";
   radialGroup.visible = show;
+  syncRadialOpacityUI();
   if (!show) return;
   const n = state.n, l = state.l;
   const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, Math.max(state.box * 0.95, 2));
@@ -4570,32 +4661,33 @@ function rebuildRadial() {
   // Height of the 3D ridge (display units, not a₀)
   const hMax = state.box * 0.38;
   const tubeR = Math.max(0.016, state.box * 0.0032);
+  // Build at full base opacities; applyRadialOverlayOpacity scales by master slider
+  const master = state.radialOpacity ?? 0.28;
 
   // --- 3D surface of revolution (spherical shell geometry) ---
-  const surf = buildRadialRevolutionSurface(sample, hMax, 80, 56);
+  const surf = buildRadialRevolutionSurface(sample, hMax, 80, 56, 0.78);
   if (surf) radialGroup.add(surf);
 
-  // --- 2D polar floor (r, φ) ---
-  const floor = buildRadialPolarFloor(sample, 70, 60);
+  // --- 2D polar floor (r, φ) — lighter so cloud shows through ---
+  const floor = buildRadialPolarFloor(sample, 70, 60, 0.42);
   if (floor) radialGroup.add(floor);
 
   // Spherical coordinate grid: constant-r rings + a few meridians (φ)
-  const gridMat = new THREE.MeshBasicMaterial({
+  const gridMat = tagRadialMat(new THREE.MeshBasicMaterial({
     color: 0x475569,
     transparent: true,
-    opacity: 0.45,
+    opacity: 0.4,
     depthWrite: false,
-  });
+  }), "grid", 0.4);
   for (let k = 1; k <= 4; k++) {
     const rr = (rMax * k) / 4;
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(rr, tubeR * 0.35, 6, 64),
       gridMat
     );
-    // torus in xy (equator) — spherical r contour
     radialGroup.add(ring);
   }
-  // Meridian profiles (φ = 0, 90°, 180°, 270°) as bright tubes on the surface
+  // Meridian profiles (φ = 0, 90°, 180°, 270°)
   for (let m = 0; m < 4; m++) {
     const phi = (m / 4) * Math.PI * 2;
     const c = Math.cos(phi), s = Math.sin(phi);
@@ -4606,24 +4698,29 @@ function rebuildRadial() {
       pts.push(new THREE.Vector3(r * c, r * s, h));
     }
     const col = m === 0 ? 0x86efac : 0x64748b;
-    radialGroup.add(curveTube(pts, col, tubeR * (m === 0 ? 1.0 : 0.55)));
+    radialGroup.add(radialTube(pts, col, tubeR * (m === 0 ? 1.0 : 0.55), m === 0 ? 0.75 : 0.45));
   }
 
   // Baseline r-axis along +x (φ=0) on the floor
-  radialGroup.add(curveTube(
+  radialGroup.add(radialTube(
     [new THREE.Vector3(0, 0, 0), new THREE.Vector3(rMax, 0, 0)],
     0x94a3b8,
-    tubeR * 0.5
+    tubeR * 0.5,
+    0.55
   ));
 
-  // Small axes: r along +x, P along +z (height of surface)
+  // Small axes: r along +x, P along +z
   const dg = diagramAxes([
     { dir: "x", min: 0, max: rMax, len: rMax, name: "r", unit: "a₀", color: 0x94a3b8, labelColor: "#cbd5e1" },
     { dir: "z", min: 0, max: 1, len: hMax * 1.05, name: "P(r)", unit: "norm.", color: 0x4ade80, labelColor: "#86efac" },
   ], { size: Math.max(rMax, hMax), radius: 0.0028, labelSize: 0.03, tickLabelSize: 0.018 });
+  // Soften diagram axis materials so they don't punch through the cloud
+  dg.traverse((o) => {
+    if (o.material) tagRadialMat(o.material, "line", 0.55);
+  });
   radialGroup.add(dg);
 
-  // φ label on the equator (spherical angle)
+  // φ / r labels
   const phiLab = textSprite("φ (azimuth)", {
     size: Math.max(0.12, state.box * 0.024),
     color: "#93c5fd",
@@ -4642,37 +4739,35 @@ function rebuildRadial() {
     const peakH = (P[sample.iPeak] / pMax) * hMax;
     const peakRing = new THREE.Mesh(
       new THREE.TorusGeometry(rMp, Math.max(0.02, state.box * 0.004), 10, 80),
-      new THREE.MeshBasicMaterial({
+      tagRadialMat(new THREE.MeshBasicMaterial({
         color: 0xfde047,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.95,
         depthWrite: false,
-      })
+      }), "peak", 0.95)
     );
     peakRing.position.z = peakH;
     radialGroup.add(peakRing);
-    // floor ring at same r (shell in the orbital plane)
     const floorRing = new THREE.Mesh(
       new THREE.TorusGeometry(rMp, Math.max(0.014, state.box * 0.003), 8, 72),
-      new THREE.MeshBasicMaterial({
+      tagRadialMat(new THREE.MeshBasicMaterial({
         color: 0xfbbf24,
         transparent: true,
-        opacity: 0.65,
+        opacity: 0.7,
         depthWrite: false,
-      })
+      }), "peak", 0.7)
     );
     radialGroup.add(floorRing);
-    // Peak ball on +x profile
     const peakBall = new THREE.Mesh(
       new THREE.SphereGeometry(Math.max(0.05, state.box * 0.011), 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0xfde047 })
+      tagRadialMat(new THREE.MeshBasicMaterial({ color: 0xfde047 }), "peak", 0.95)
     );
     peakBall.position.set(rMp, 0, peakH);
     radialGroup.add(peakBall);
   }
 
   // Radial nodes of R_nl on the +x baseline
-  const nodeMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
+  const nodeMat = tagRadialMat(new THREE.MeshBasicMaterial({ color: 0xf87171 }), "peak", 0.85);
   let prevS = Math.sign(radialR(n, l, 1e-4, activeZ));
   for (let i = 1; i <= NP; i++) {
     const r = (rMax * i) / NP;
@@ -4688,20 +4783,24 @@ function rebuildRadial() {
     if (s !== 0) prevS = s;
   }
 
-  // Titles
+  // Titles (sprites get opacity from applyRadialOverlayOpacity)
   const el = state.element;
   const rt = titleSprite(
-    `P(r)=4πr²R² · ${el ? el.sym + " " : ""}${subshellKey(n, l)} · spherical r · peak ≈ ${rMp.toFixed(2)} a₀`,
-    Math.max(0.13, state.box * 0.026)
+    `P(r)=4πr²R² · ${el ? el.sym + " " : ""}${subshellKey(n, l)} · peak ≈ ${rMp.toFixed(2)} a₀ · overlay opacity adjustable`,
+    Math.max(0.12, state.box * 0.024)
   );
   rt.position.set(0, 0, hMax * 1.35);
   radialGroup.add(rt);
   const hint = titleSprite(
-    "3D ridge = P(r) spun around nucleus · floor = polar (r,φ) · peak ring = most probable shell",
-    Math.max(0.10, state.box * 0.02)
+    "Cloud = |ψ|² · green ridge = spherical P(r) · drag “P(r) overlay opacity” if one hides the other",
+    Math.max(0.09, state.box * 0.018)
   );
-  hint.position.set(0, 0, hMax * 1.18);
+  hint.position.set(0, 0, hMax * 1.16);
   radialGroup.add(hint);
+
+  // Apply master slider (default low → cloud stays readable)
+  applyRadialOverlayOpacity(master);
+  syncRadialOpacityUI();
 }
 
 /** MO field evaluation: kind-aware multi-center LCAO */
@@ -6333,6 +6432,20 @@ $("ljChips")?.addEventListener("click", (e) => {
 $("radial")?.addEventListener("change", () => {
   state.showRadial = $("radial").checked;
   rebuildRadial();
+  drawRadialPlot2D();
+  syncRadialOpacityUI();
+  markDirty();
+});
+
+$("radialOpacity")?.addEventListener("input", () => {
+  const v = parseFloat($("radialOpacity").value) || 0.28;
+  state.radialOpacity = v;
+  if ($("radialOpacityVal")) $("radialOpacityVal").textContent = v.toFixed(2);
+  if (state.showRadial && radialGroup.children.length) {
+    applyRadialOverlayOpacity(v);
+  } else {
+    syncRadialOpacityUI();
+  }
 });
 
 $("bondScale")?.addEventListener("input", () => {
@@ -7378,17 +7491,17 @@ function initPhysicsLab() {
     markDirty();
   });
 
-  // radial checkbox already bound? ensure plot updates
+  // radial checkbox + overlay opacity (idempotent; may already be bound above)
   const rad = $("radial");
   if (rad) {
     rad.checked = !!state.showRadial;
-    rad.addEventListener("change", () => {
-      state.showRadial = rad.checked;
-      rebuildRadial();
-      drawRadialPlot2D();
-      markDirty();
-    });
   }
+  const ro = $("radialOpacity");
+  if (ro) {
+    ro.value = String(state.radialOpacity ?? 0.28);
+    if ($("radialOpacityVal")) $("radialOpacityVal").textContent = Number(state.radialOpacity ?? 0.28).toFixed(2);
+  }
+  syncRadialOpacityUI();
   // initial radial if on
   if (state.showRadial) {
     setTimeout(() => { rebuildRadial(); drawRadialPlot2D(); }, 100);
