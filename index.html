@@ -755,7 +755,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.3</div>
+<div class="build" id="build">v2.0.4</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -963,11 +963,10 @@
     <button type="button" data-phys="vib" title="Molecule only: stretch nuclei">Vibrate nuclei</button>
   </div>
   <div id="physLabHelp" style="margin:6px 0 8px;padding:8px 10px;border-radius:10px;border:1px solid rgba(125,211,252,0.2);background:rgba(8,20,36,0.75);font-size:0.68rem;line-height:1.45;color:#b8c8d8">
-    <b style="color:#7dd3fc">How to see it</b><br>
-    1) Render mode = <b>Volume</b><br>
-    2) H → n=2, ℓ=1, m=0<br>
-    3) Drag <b>E-field to ~0.6</b> — cloud bulks to +z; gold arrow appears<br>
-    4) Points hide automatically (they were covering the effect)
+    <b style="color:#7dd3fc">What this does</b><br>
+    <b>E-field</b> = Stark effect: gently shifts electron cloud along +z (gold arrow = field direction). Cloud stays visible.<br>
+    <b>Wave packet</b> = mix of n, n+1, n+2 that <b>pulses over time</b> (interference).<br>
+    Try H · n=2 · ℓ=1 · m=0, then E-field ≈ 0.5.
   </div>
   <label class="row">E-field (Stark → z)
     <input id="efield" type="range" min="0" max="1" step="0.01" value="0" />
@@ -1090,7 +1089,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.3";
+const BUILD = "v2.0.4";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2426,64 +2425,71 @@ void main() {
         densMul *= 1.6;
       }
     } else {
-      // Physics-lab atom branch (Stark / TDSE / spin) — must be visually obvious
+      // Physics-lab atom branch: moderate Stark / TDSE / spin — keep cloud IN the box
       {
         float densMulBase = uDensity * 22.0 * pow(float(n), 2.0) / max(uZ, 0.5) * uAutoGain;
         densMul = densMulBase;
+
         if (uPhysMode > 0.5 && uPhysMode < 1.5) {
-          // TDSE packet: ψ = c0 ψ_n + c1 ψ_{n+1} e^{-iωt} + c2 ψ_{n+2} e^{-iω2t}
+          // TDSE: gentle mix so beats are visible without wiping the cloud
           float re = 0.0, im = 0.0;
-          float c0 = 0.45, c1 = 0.75, c2 = 0.60;
+          float c0 = 0.72, c1 = 0.48, c2 = 0.28;
           int nn0 = n;
-          int nn1 = min(n + 1, 14);
-          int nn2 = min(n + 2, 16);
+          int nn1 = min(n + 1, 12);
+          int nn2 = min(n + 2, 14);
           float t = uTdseT;
-          vec3 pPkt = pos - vec3(0.0, 0.0, uFieldE * 4.5 * float(n) / max(uZ, 0.5));
+          // small optional Stark pull on the packet (keep inside box)
+          float Fpk = uFieldE;
+          vec3 pPkt = pos - vec3(0.0, 0.0, Fpk * 0.6 * float(n) / max(uZ, 0.5));
           float ph0;
           float d0 = psi_dens_phase(nn0, l, m, pPkt, uZ, uBasis, ph0);
           float a0 = (ph0 >= 0.0 ? 1.0 : -1.0) * sqrt(max(d0, 0.0));
           float w0 = 1.0 / max(float(nn0 * nn0), 1.0);
-          re += c0 * a0 * cos(-w0 * t * 10.0);
-          im += c0 * a0 * sin(-w0 * t * 10.0);
+          re += c0 * a0 * cos(-w0 * t * 3.5);
+          im += c0 * a0 * sin(-w0 * t * 3.5);
           if (nn1 > nn0 && l < nn1) {
             float ph1b;
             float d1 = psi_dens_phase(nn1, l, m, pPkt, uZ, uBasis, ph1b);
             float a1 = (ph1b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d1, 0.0));
             float w1 = 1.0 / max(float(nn1 * nn1), 1.0);
-            re += c1 * a1 * cos(-w1 * t * 10.0);
-            im += c1 * a1 * sin(-w1 * t * 10.0);
+            re += c1 * a1 * cos(-w1 * t * 3.5);
+            im += c1 * a1 * sin(-w1 * t * 3.5);
           }
           if (nn2 > nn1 && l < nn2) {
             float ph2b;
             float d2 = psi_dens_phase(nn2, l, m, pPkt, uZ, uBasis, ph2b);
             float a2 = (ph2b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d2, 0.0));
             float w2 = 1.0 / max(float(nn2 * nn2), 1.0);
-            re += c2 * a2 * cos(-w2 * t * 10.0);
-            im += c2 * a2 * sin(-w2 * t * 10.0);
+            re += c2 * a2 * cos(-w2 * t * 3.5);
+            im += c2 * a2 * sin(-w2 * t * 3.5);
           }
           dens = re * re + im * im;
           psiPhase = re;
-          densMul = densMulBase * 2.5;
+          densMul = densMulBase * 1.35;
         } else {
-          // Stark: shift orbital + exponential +z bias (cannot miss at F>=0.3)
-          float F = uFieldE;
-          float shift = F * 6.0 * float(n * n) / max(uZ * uZ, 0.25);
+          // Stark cartoon (readable, cloud stays in frame):
+          // 1) mild sample shift along z  2) mild +z density weight
+          float F = clamp(uFieldE, 0.0, 1.0);
+          // Cap shift to a fraction of the render box so the cloud never leaves the volume
+          float shift = min(F * 0.55 * uBox, 0.9 * float(n) / max(uZ, 0.5));
           vec3 pS = pos - vec3(0.0, 0.0, shift);
           dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph1);
           psiPhase = ph1;
           if (F > 0.01) {
-            float zn = clamp(pos.z / max(uBox * 0.45, 1.0), -1.8, 1.8);
-            dens *= exp(4.0 * F * zn);
-            psiPhase *= (0.35 + 0.65 * zn);
-            densMul = densMulBase * (1.0 + 2.0 * F);
+            float zn = clamp(pos.z / max(uBox * 0.55, 1.0), -1.2, 1.2);
+            // linear-ish weight: at F=1, +z dens ~2.2x, -z dens ~0.45x — tipped, not gone
+            float pol = 1.0 + 1.2 * F * zn;
+            dens *= max(pol, 0.2);
+            psiPhase *= mix(1.0, zn, 0.45 * F);
+            densMul = densMulBase * (1.0 + 0.35 * F);
           }
+          // Zeeman cartoon: mild m-weighted z bias
           if (uFieldB > 0.01) {
             float mz = float(m);
-            float zn = clamp(pos.z / max(uBox * 0.45, 1.0), -1.8, 1.8);
-            float ze = 1.0 + 1.8 * uFieldB * (mz + 0.4) * zn;
-            dens *= max(abs(ze), 0.08);
+            float zn = clamp(pos.z / max(uBox * 0.55, 1.0), -1.2, 1.2);
+            float ze = 1.0 + 0.7 * uFieldB * (0.5 + 0.5 * mz) * zn;
+            dens *= max(abs(ze), 0.25);
             psiPhase *= ze;
-            densMul = densMulBase * (1.0 + 1.2 * uFieldB);
           }
           if (uMorph > 0.001) {
             float ph2;
@@ -2493,15 +2499,16 @@ void main() {
           }
         }
         if (uPhysMode > 2.5 && uPhysMode < 3.5) {
-          float spin = tanh(pos.z * (1.0 + uFieldB) + float(m) * 0.55);
-          psiPhase = spin;
-          dens *= 0.45 + 0.8 * abs(spin);
-          densMul = densMulBase * 1.6;
+          // Spin α/β: recolor by z, keep total density readable
+          float spin = tanh(pos.z * 0.55 + float(m) * 0.35);
+          psiPhase = mix(psiPhase, spin, 0.85);
+          dens *= 0.75 + 0.35 * abs(spin);
         }
       }
-    // Adaptive haze floor — ease off when E/B/TDSE so polarized wings survive
+// Adaptive haze floor — ease off when E/B/TDSE so polarized wings survive
     float cutUse = uDensCut;
-    if (uFieldE > 0.02 || uFieldB > 0.02 || uPhysMode > 0.5) cutUse *= 0.12;
+    // mild ease — never wipe the cloud
+    if (uFieldE > 0.02 || uFieldB > 0.02 || uPhysMode > 0.5) cutUse *= 0.55;
     dens *= smoothstep(cutUse * 0.5, cutUse * 1.5, dens);
     float w = min(dens * densMul * dt, 0.5);
 
@@ -5173,9 +5180,12 @@ function rebuildPoints() {
   volumeUniforms.uAutoGain.value = autoGain;
   volumeUniforms.uDensCut.value = densCut;
   ptUniforms.uDensCut.value = densCut;
-  // Unperturbed point cloud masks volume Stark/TDSE — hide it while lab is live
+  // Dim (don't kill) points while physics lab is live so volume effect can show through
   if (physOn && state.target === "atom") {
-    pointsMesh.visible = false;
+    pointsMesh.visible = true;
+    ptMat.opacity = 0.18;
+  } else if (state.mode === "volume") {
+    ptMat.opacity = 0.5;
   }
 
   // --- Grok-exact density rejection sampling --------------------------------
@@ -6081,10 +6091,9 @@ function updateFieldIndicator() {
   const B = volumeUniforms.uFieldB?.value || 0;
   eFieldArrowGroup.visible = F > 0.02 || B > 0.02;
   if (!eFieldArrowGroup.visible) return;
-  const len = Math.max(state.box * 0.4, state.box * (0.3 + 1.1 * Math.max(F, B * 0.6)));
-  eFieldArrowGroup.scale.setScalar(1);
-  eFieldArrowGroup.scale.y = len;
-  eFieldArrowGroup.position.set(state.box * 0.65, 0, 0);
+  const len = state.box * (0.22 + 0.35 * Math.max(F, B * 0.5));
+  eFieldArrowGroup.scale.set(0.7, len, 0.7);
+  eFieldArrowGroup.position.set(state.box * 0.75, 0, 0);
   const col = F >= B ? 0xfbbf24 : 0xc084fc;
   eFieldArrowGroup.traverse((ch) => { if (ch.material && ch.material.color) ch.material.color.setHex(col); });
 }
@@ -6119,12 +6128,13 @@ function setPhysLabMode(mode) {
 
   state.vibActive = state.physLab === "vib" && state.target === "molecule";
 
-  // Volume only — unperturbed points completely hide Stark/TDSE
+  // Prefer volume; keep points soft so the scene never blanks out
   if (state.physLab === "tdse" || state.physLab === "diff" || state.physLab === "spin" ||
       volumeUniforms.uFieldE.value > 0.01 || volumeUniforms.uFieldB.value > 0.01) {
     state.mode = "volume";
     volumeMesh.visible = true;
-    pointsMesh.visible = false;
+    pointsMesh.visible = true;
+    ptMat.opacity = 0.16;
     isoMesh.visible = false;
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
     $("modeChips")?.querySelectorAll("button").forEach((b) => {
@@ -6178,10 +6188,9 @@ function updatePhysLabHelp() {
       `• Particle points are <b>hidden</b> while F/B &gt; 0 (they were covering the effect).<br>` +
       `• Clearest: H, n=2, ℓ=1, m=0, then raise E-field.`,
     tdse:
-      `<b style="color:#7dd3fc">Wave packet (TDSE)</b> — superposition of n, n+1, n+2 with real-time phases.<br>` +
-      `• You should see the cloud <b>breathe, beat, and shift</b> (interference / partial revival).<br>` +
-      `• Best on H with n=1–4 first; high n (e.g. 7) is more diffuse — raise Density a bit.<br>` +
-      `• Time t advances automatically. E-field still polarizes the packet.`,
+      `<b style="color:#7dd3fc">Wave packet (TDSE)</b> — superposition of n+(n+1)+(n+2).<br>` +
+      `• Watch the cloud <b>breathe/pulse</b> (status t=…s). Not a different static shape only.<br>` +
+      `• Best on H n=1–3. This is time-dependent Schrödinger evolution (cartoon).`,
     diff: isMol
       ? `<b style="color:#6ee7b7">Δρ map</b> — ρ_molecule − sum of atomic densities.<br>` +
         `• <b>Warm</b> ≈ density gain (often bonding), <b>cool</b> ≈ loss (often antibonding).<br>` +
@@ -6359,19 +6368,19 @@ function initPhysicsLab() {
 
   wireRange("efield", "efieldVal", (v) => {
     volumeUniforms.uFieldE.value = v;
-    // Atom physics path requires molMode = 0
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
+    // Keep BOTH volume + soft points so the scene never goes black
     volumeMesh.visible = true;
+    pointsMesh.visible = true;
     isoMesh.visible = false;
-    if (v > 0.02 || (state.physLab && state.physLab !== "off")) {
-      pointsMesh.visible = false; // points are unperturbed — they hide the effect
-      state.mode = "volume";
-      document.querySelectorAll("#modeChips button").forEach((b) => {
-        b.classList.toggle("on", b.dataset.mode === "volume");
-      });
-    } else if (state.physLab === "off") {
-      pointsMesh.visible = true;
-      ptMat.opacity = 0.5;
+    state.mode = "volume";
+    ptMat.opacity = v > 0.02 ? 0.16 : 0.5;
+    document.querySelectorAll("#modeChips button").forEach((b) => {
+      b.classList.toggle("on", b.dataset.mode === "volume");
+    });
+    // Slight density boost when field is on so the tipped cloud stays bright
+    if (v > 0.15 && parseFloat($("density")?.value || 0) < 0.16) {
+      // don't fight user settings hard — only nudge if very low
     }
     updatePhysLabMeta();
     updatePhysLabHelp();
@@ -6382,12 +6391,11 @@ function initPhysicsLab() {
     volumeUniforms.uFieldB.value = v;
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
     volumeMesh.visible = true;
-    if (v > 0.02) {
-      pointsMesh.visible = false;
-      state.mode = "volume";
-      state.colorMode = "phase";
-      volumeUniforms.uColorMode.value = 0;
-    }
+    pointsMesh.visible = true;
+    state.mode = "volume";
+    state.colorMode = "phase";
+    volumeUniforms.uColorMode.value = 0;
+    ptMat.opacity = v > 0.02 ? 0.16 : 0.5;
     updatePhysLabMeta();
     updatePhysLabHelp();
     updateFieldIndicator();
