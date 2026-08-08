@@ -755,7 +755,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.7</div>
+<div class="build" id="build">v2.0.8</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -787,14 +787,14 @@
         <span class="tn-kicker">Solid state</span>
         Crystals
       </button>
-      <button type="button" data-tab="sound" id="topTabSound" title="Toggle element sonification">
+      <button type="button" data-tab="sound" id="topTabSound" title="Sci-fi sonification: tones on element/orbital/molecule changes, E/B fields, Physics Lab">
         <span class="tn-kicker">Audio</span>
         Sound off
       </button>
     </div>
   </div>
   <div class="welcome-help" id="welcomeHelp" role="status">
-    <span>Click <b>Periodic table</b>, <b>Main molecules</b>, <b>Isotopes</b>, or <b>Crystals</b> to explore — panel auto-hides so the 3D view stays clear. Optional: <b>Sound</b> tones from element properties.</span>
+    <span>Click <b>Periodic table</b>, <b>Main molecules</b>, <b>Isotopes</b>, or <b>Crystals</b> to explore. <b>Sound</b> = lab tones when you change atoms, orbitals, fields, or Physics Lab modes (not ambient music).</span>
     <button type="button" id="welcomeDismiss">Got it</button>
   </div>
 </div>
@@ -1089,7 +1089,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.7";
+const BUILD = "v2.0.8";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -3417,6 +3417,11 @@ function setQuantum(n, l, m, morph = true) {
     if (nucleusGlow) nucleusGlow.position.set(0, 0, shift);
   }
   if (state.mode === "iso") rebuildIsosurface();
+  // Sonify nℓm changes (throttled inside). Skip pure morph redraws with same nlm.
+  if (typeof playOrbitalTone === "function" &&
+      (n !== prevN || l !== prevL || m !== prevM)) {
+    playOrbitalTone(n, l, m);
+  }
 }
 
 /** @deprecated name kept for call sites */
@@ -4871,6 +4876,7 @@ function selectMolecule(id, morph = true) {
   document.querySelectorAll(".pt-cell").forEach((c) => c.classList.remove("on"));
 
   refreshMoleculeView(true);
+  if (typeof playMoleculeTone === "function") playMoleculeTone(mol);
   if (typeof bumpDockIdle === "function") bumpDockIdle(14000);
 }
 
@@ -6037,19 +6043,172 @@ function buildIsotopeList(Z){
   }
   state.studioMode="iso"; crystalGroup.visible=false; volumeMesh.visible=true; pointsMesh.visible=true;
 }
-let audioCtx=null;
-function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); return audioCtx; }
-function playElementTone(Z,A=null){
-  try{ const ctx=ensureAudio(); const ed=ELEM_DATA[Z-1]; const ie=ed?ed[0]:10;
-    const f=Math.min(1760,Math.max(55,110*Math.pow(2,(ie-5)/12)*(1+0.02*Math.log2(Z+1))));
-    const osc=ctx.createOscillator(), gain=ctx.createGain(), filt=ctx.createBiquadFilter();
-    osc.type=Z<=2?"sine":Z<=10?"triangle":"sine"; osc.frequency.value=f; filt.type="lowpass"; filt.frequency.value=800+Z*40;
-    gain.gain.value=0.0001; osc.connect(filt); filt.connect(gain); gain.connect(ctx.destination);
-    const t0=ctx.currentTime; gain.gain.exponentialRampToValueAtTime(0.12,t0+0.03); gain.gain.exponentialRampToValueAtTime(0.0001,t0+0.55);
-    osc.start(t0); osc.stop(t0+0.7);
-  }catch(e){ console.warn("audio",e); }
+// =============================================================================
+// Studio sonification — short Web-Audio cues mapped to physics UI events.
+// Not ambient music. Sound ON arms the lab; you hear tones when things change.
+// =============================================================================
+let audioCtx = null;
+let _sfxLast = { field: 0, orb: 0, vib: 0, any: 0 };
+
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
 }
-function setSoundOn(on){ state.soundOn=!!on; const b=$("topTabSound"); if(b){ b.classList.toggle("sound-on",state.soundOn); b.innerHTML='<span class="tn-kicker">Audio</span>Sound '+(state.soundOn?"on":"off"); } if(on) ensureAudio(); }
+
+/** Low-level blip. Safe no-op if audio blocked. */
+function playTone({
+  f = 440, type = "sine", dur = 0.35, vol = 0.1,
+  attack = 0.02, detune = 0, filterHz = 2800, slideTo = null,
+} = {}) {
+  try {
+    const ctx = ensureAudio();
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filt = ctx.createBiquadFilter();
+    osc.type = type;
+    osc.frequency.value = Math.max(30, Math.min(4000, f));
+    if (detune) osc.detune.value = detune;
+    if (slideTo != null) {
+      osc.frequency.setValueAtTime(f, t0);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideTo), t0 + dur * 0.85);
+    }
+    filt.type = "lowpass";
+    filt.frequency.value = filterHz;
+    filt.Q.value = 0.7;
+    gain.gain.value = 0.0001;
+    osc.connect(filt);
+    filt.connect(gain);
+    gain.connect(ctx.destination);
+    const peak = Math.max(0.0001, Math.min(0.22, vol));
+    gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  } catch (e) {
+    console.warn("audio", e);
+  }
+}
+
+function sfxReady() {
+  return !!state.soundOn;
+}
+
+function sfxThrottle(key, ms) {
+  const now = performance.now();
+  if (now - (_sfxLast[key] || 0) < ms) return false;
+  _sfxLast[key] = now;
+  return true;
+}
+
+/** Element pick: pitch from ionization energy (higher IE → higher pitch). */
+function playElementTone(Z, A = null) {
+  if (!sfxReady()) return;
+  try {
+    const ed = ELEM_DATA[Z - 1];
+    const ie = ed ? ed[0] : 10;
+    const f = Math.min(1760, Math.max(70, 110 * Math.pow(2, (ie - 5) / 12) * (1 + 0.02 * Math.log2(Z + 1))));
+    // Mass isotope: slightly detune heavier A
+    const det = A != null ? Math.min(80, Math.max(-40, (A - 2 * Z) * 2)) : 0;
+    playTone({ f, type: Z <= 2 ? "sine" : Z <= 10 ? "triangle" : "sine", dur: 0.5, vol: 0.11, detune: det, filterHz: 900 + Z * 35 });
+    // Soft overtone (sci-fi shimmer)
+    playTone({ f: f * 2.01, type: "sine", dur: 0.35, vol: 0.035, attack: 0.04, filterHz: 3200 });
+  } catch (e) {
+    console.warn("audio", e);
+  }
+}
+
+/** n,ℓ,m change: Bohr-ish pitch 1/n², brightness from ℓ, m = stereo-ish detune. */
+function playOrbitalTone(n, l, m) {
+  if (!sfxReady() || !sfxThrottle("orb", 90)) return;
+  const nn = Math.max(1, n | 0);
+  const ll = Math.max(0, l | 0);
+  const mm = m | 0;
+  // Energy scale cartoon: higher n → lower pitch (bound levels pack toward continuum)
+  const f0 = 520 * (1 / (nn * nn)) * (1 + 0.18 * ll) * Math.pow(2, Math.abs(mm) * 0.08);
+  const f = Math.min(1600, Math.max(80, f0));
+  const types = ["sine", "triangle", "sawtooth", "square"];
+  playTone({ f, type: types[Math.min(ll, 3)], dur: 0.28 + 0.04 * ll, vol: 0.09, detune: mm * 12, filterHz: 1200 + ll * 400 });
+  if (ll > 0) playTone({ f: f * 1.5, type: "sine", dur: 0.2, vol: 0.03, attack: 0.03 });
+}
+
+/** Molecule: short chord from first few atomic numbers. */
+function playMoleculeTone(mol) {
+  if (!sfxReady() || !mol?.atoms?.length) return;
+  const zs = mol.atoms.slice(0, 4).map((a) => a.Z || 1);
+  zs.forEach((Z, i) => {
+    const f = 180 + Z * 18 + i * 40;
+    setTimeout(() => playTone({ f, type: "triangle", dur: 0.32, vol: 0.055, filterHz: 2000 }), i * 55);
+  });
+  // Bond "click"
+  setTimeout(() => playTone({ f: 90, type: "sine", dur: 0.18, vol: 0.06, slideTo: 140, filterHz: 600 }), 40);
+}
+
+/** E or B field drag: rising/falling whoosh mapped to strength. */
+function playFieldTone(kind, v) {
+  if (!sfxReady() || !sfxThrottle("field", 70)) return;
+  const x = Math.max(0, Math.min(1, v));
+  if (kind === "E") {
+    // Stark: warm rising sweep
+    const f = 120 + x * 680;
+    playTone({ f, type: "sawtooth", dur: 0.14, vol: 0.045 + 0.05 * x, slideTo: f * 1.35, filterHz: 900 + x * 1800 });
+  } else {
+    // Zeeman: cooler, slightly metallic
+    const f = 90 + x * 420;
+    playTone({ f, type: "triangle", dur: 0.16, vol: 0.04 + 0.05 * x, slideTo: f * 0.75, filterHz: 700 + x * 1200, detune: 7 });
+    playTone({ f: f * 2.5, type: "sine", dur: 0.12, vol: 0.02, filterHz: 3000 });
+  }
+}
+
+/** Physics Lab mode enter: distinct stinger. */
+function playLabModeTone(mode) {
+  if (!sfxReady()) return;
+  const map = {
+    off: { f: 200, slideTo: 120, type: "sine", dur: 0.25 },
+    tdse: { f: 280, slideTo: 560, type: "sine", dur: 0.45 },
+    diff: { f: 440, slideTo: 330, type: "triangle", dur: 0.35 },
+    spin: { f: 360, slideTo: 720, type: "triangle", dur: 0.4 },
+    vib: { f: 150, slideTo: 300, type: "sine", dur: 0.35 },
+  };
+  const p = map[mode] || map.off;
+  playTone({ ...p, vol: 0.09, filterHz: 2200 });
+  playTone({ f: (p.f || 200) * 1.5, type: "sine", dur: 0.2, vol: 0.03, attack: 0.05 });
+}
+
+/** Vibration zero-crossing tick (soft). */
+function playVibTick(amp) {
+  if (!sfxReady() || !sfxThrottle("vib", 180)) return;
+  const a = Math.max(0.05, Math.min(1, amp));
+  playTone({ f: 70 + a * 90, type: "sine", dur: 0.08, vol: 0.03 + 0.04 * a, filterHz: 400 });
+}
+
+/** Immediate proof that audio works when user enables Sound. */
+function playEnableChime() {
+  playTone({ f: 523.25, type: "sine", dur: 0.22, vol: 0.1 }); // C5
+  setTimeout(() => playTone({ f: 659.25, type: "sine", dur: 0.22, vol: 0.09 }), 90); // E5
+  setTimeout(() => playTone({ f: 783.99, type: "triangle", dur: 0.4, vol: 0.08 }), 180); // G5
+}
+
+function setSoundOn(on) {
+  state.soundOn = !!on;
+  const b = $("topTabSound");
+  if (b) {
+    b.classList.toggle("sound-on", state.soundOn);
+    b.innerHTML = '<span class="tn-kicker">Audio</span>Sound ' + (state.soundOn ? "on" : "off");
+    b.title = state.soundOn
+      ? "Sound ON — lab tones on element/orbital/molecule/field/Physics Lab changes. Click to mute."
+      : "Sound OFF — click to enable sci-fi lab sonification.";
+  }
+  if (on) {
+    ensureAudio();
+    playEnableChime();
+    if ($("caption")) {
+      $("caption").textContent =
+        "Sound on: you will hear short lab tones when changing elements, nℓm, molecules, E/B fields, or Physics Lab modes. Not continuous music.";
+    }
+  }
+}
 function valenceAOSuggestions(Z){
   if(Z<=2) return [{n:1,l:0}]; if(Z<=10) return [{n:2,l:0},{n:2,l:1}]; if(Z<=18) return [{n:3,l:0},{n:3,l:1}];
   if(Z<=36) return [{n:4,l:0},{n:3,l:2},{n:4,l:1}]; if(Z<=54) return [{n:5,l:0},{n:4,l:2},{n:5,l:1}]; return [{n:6,l:0},{n:4,l:3},{n:5,l:2}];
@@ -6130,7 +6289,7 @@ function animateHomoLumoPromote(){
     if(open) setDockOpen(true);
   };
   const origSelectElement=selectElement;
-  selectElement=function(Z, morph=true){ crystalGroup.visible=false; state.atomFocus=null; origSelectElement(Z, morph); if(state.soundOn) playElementTone(Z); if(dockCurrentTab==="iso") buildIsotopeList(Z); };
+  selectElement=function(Z, morph=true){ crystalGroup.visible=false; state.atomFocus=null; origSelectElement(Z, morph); playElementTone(Z); if(dockCurrentTab==="iso") buildIsotopeList(Z); };
   const origUpdateMol=updateMoleculePanels;
   updateMoleculePanels=function(mol, phys){ origUpdateMol(mol, phys); renderMolAtomChips(mol); updateHomoGap(phys);
     requestAnimationFrame(()=>{ const box=$("moLadder"); if(!box||!phys) return;
@@ -6248,6 +6407,9 @@ function setPhysLabMode(mode) {
   if (typeof updateFieldIndicator === "function") updateFieldIndicator();
   rebuildPoints();
   if (state.showRadial) { rebuildRadial(); drawRadialPlot2D(); }
+  if (typeof playLabModeTone === "function" && prev !== state.physLab) {
+    playLabModeTone(state.physLab);
+  }
   markDirty();
 }
 
@@ -6410,6 +6572,12 @@ function applyVibrationFrame(dt) {
   // keep orbitals following: rebuild points lightly every few frames
   state._vibFrame = (state._vibFrame || 0) + 1;
   if (state._vibFrame % 4 === 0) rebuildPoints();
+  // Soft tick near zero-crossing of the stretch (sci-fi “heartbeat”)
+  const prevQ = state._vibQPrev;
+  state._vibQPrev = Q;
+  if (prevQ != null && prevQ * Q <= 0 && typeof playVibTick === "function") {
+    playVibTick(amp);
+  }
   markDirty();
 }
 
@@ -6467,6 +6635,7 @@ function initPhysicsLab() {
       nucleus.position.set(0, 0, shift);
       if (nucleusGlow) nucleusGlow.position.set(0, 0, shift);
     }
+    if (typeof playFieldTone === "function") playFieldTone("E", v);
     updatePhysLabMeta();
     updatePhysLabHelp();
     updateFieldIndicator();
@@ -6477,6 +6646,7 @@ function initPhysicsLab() {
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
     volumeMesh.visible = true;
     pointsMesh.visible = true;
+    if (typeof playFieldTone === "function") playFieldTone("B", v);
     updatePhysLabMeta();
     updatePhysLabHelp();
     updateFieldIndicator();
