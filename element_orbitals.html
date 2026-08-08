@@ -29,24 +29,118 @@
   }
 
   .top {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
-    padding: 16px 22px 40px;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 15;
+    padding: 14px 22px 36px;
     background: linear-gradient(180deg, rgba(5,6,10,0.92) 0%, rgba(5,6,10,0.4) 65%, transparent 100%);
     pointer-events: none;
   }
+  .top-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px 20px;
+    max-width: 1400px;
+  }
+  .top-copy { flex: 1; min-width: 0; pointer-events: none; }
   .top h1 {
     font-size: clamp(1.05rem, 2.2vw, 1.4rem);
     font-weight: 600; letter-spacing: -0.02em;
   }
   .top p {
     margin-top: 4px; font-size: 0.8rem; color: var(--muted);
-    max-width: 58ch; line-height: 1.45;
+    max-width: 52ch; line-height: 1.45;
   }
   .badge {
     display: inline-block; font-size: 0.62rem; font-weight: 700;
     letter-spacing: 0.14em; text-transform: uppercase;
     color: #061018; background: linear-gradient(90deg, #7dd3fc, #a78bfa);
     border-radius: 999px; padding: 3px 10px; margin-bottom: 8px;
+  }
+
+  /* Big top entry points — always visible, never buried downstairs */
+  .top-nav {
+    pointer-events: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    padding-top: 2px;
+  }
+  .top-nav button {
+    width: auto !important;
+    margin: 0 !important;
+    min-width: 10.5rem;
+    padding: 12px 18px !important;
+    font-size: 0.88rem !important;
+    font-weight: 700 !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(125, 211, 252, 0.28);
+    background: linear-gradient(160deg, rgba(18, 32, 48, 0.95), rgba(12, 18, 30, 0.92));
+    color: var(--ink);
+    opacity: 0.92;
+    letter-spacing: 0.01em;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.28);
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  }
+  .top-nav button:hover {
+    border-color: var(--accent);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+  .top-nav button.on {
+    opacity: 1;
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(125,211,252,0.25), 0 8px 24px rgba(56,189,248,0.12);
+    background: linear-gradient(160deg, rgba(12, 42, 58, 0.98), rgba(14, 24, 40, 0.95));
+  }
+  .top-nav button .tn-kicker {
+    display: block;
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #7a8fa8;
+    margin-bottom: 2px;
+  }
+  .top-nav button.on .tn-kicker { color: #7dd3fc; }
+
+  .welcome-help {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    max-width: 720px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    background: rgba(8, 16, 28, 0.78);
+    backdrop-filter: blur(12px);
+    font-size: 0.8rem;
+    color: #c8d4e4;
+    line-height: 1.4;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  }
+  .welcome-help.hidden { display: none; }
+  .welcome-help b { color: #7dd3fc; font-weight: 700; }
+  .welcome-help button {
+    width: auto !important;
+    margin: 0 0 0 auto !important;
+    padding: 6px 12px !important;
+    font-size: 0.72rem !important;
+    border-radius: 999px !important;
+    border-color: rgba(125,211,252,0.3);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  @media (max-width: 820px) {
+    .top-row { flex-direction: column; align-items: stretch; }
+    .top-nav { justify-content: stretch; }
+    .top-nav button { flex: 1; min-width: 0; }
+    .top p { display: none; }
   }
 
   .panel {
@@ -69,15 +163,17 @@
   .panel h2:first-child { margin-top: 0; }
   /* Side panels — leave room for collapsible dock */
   .left {
-    left: 12px; top: 96px; width: min(280px, 28vw);
-    max-height: calc(100vh - 120px);
-    transition: max-height 0.25s ease;
+    left: 12px; top: 108px; width: min(280px, 28vw);
+    max-height: calc(100vh - 130px);
+    transition: max-height 0.25s ease, top 0.2s ease;
   }
   .right {
-    right: 12px; top: 96px; width: min(260px, 26vw);
-    max-height: calc(100vh - 120px);
-    transition: max-height 0.25s ease;
+    right: 12px; top: 108px; width: min(260px, 26vw);
+    max-height: calc(100vh - 130px);
+    transition: max-height 0.25s ease, top 0.2s ease;
   }
+  body.welcome-visible .left,
+  body.welcome-visible .right { top: 148px; }
   body.dock-open .left,
   body.dock-open .right {
     max-height: calc(100vh - 300px);
@@ -98,42 +194,38 @@
   .dock-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 10px;
+    padding: 6px 14px;
     max-width: 1100px;
     margin: 0 auto;
   }
-  .dock-tabs {
-    display: flex;
-    gap: 4px;
+  .dock-bar-label {
     flex: 1;
     min-width: 0;
-  }
-  .dock-tabs button {
-    width: auto;
-    margin: 0;
-    padding: 6px 12px;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 600;
-    border-radius: 999px;
-    opacity: 0.75;
-    background: #121a28;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #8b9bb0;
   }
-  .dock-tabs button.on {
-    opacity: 1;
-    border-color: var(--accent);
-    color: var(--accent);
-    box-shadow: 0 0 12px rgba(125, 211, 252, 0.22);
+  .dock-bar-idle {
+    font: 500 0.62rem "JetBrains Mono", ui-monospace, monospace;
+    color: #5a6a80;
+    white-space: nowrap;
   }
   .dock-toggle {
     width: auto !important;
     margin: 0 !important;
-    padding: 6px 12px !important;
-    font-size: 0.7rem !important;
+    padding: 6px 14px !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
     flex-shrink: 0;
     color: #8b9bb0;
+    border-radius: 999px !important;
   }
-  .dock-toggle:hover { color: #fff; }
+  .dock-toggle:hover { color: #fff; border-color: var(--accent); }
+  /* bottom tab strip removed — entry is the top nav */
+  .dock-tabs { display: none !important; }
   .dock-body {
     max-height: min(42vh, 320px);
     overflow-y: auto;
@@ -548,6 +640,8 @@
   body.film-mode .hint,
   body.film-mode .build,
   body.film-mode .dock,
+  body.film-mode .welcome-help,
+  body.film-mode .top-nav,
   body.film-mode .pt-panel { display: none !important; }
   body.film-mode .top {
     padding: 28px 40px 60px;
@@ -597,18 +691,36 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v1.7.0</div>
+<div class="build" id="build">v1.8.0</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
 
 <div class="top">
-  <div class="badge" id="badge">Atoms + molecules · a₀ = 1</div>
-  <h1 id="title">Hydrogen · 1s</h1>
-  <p id="subtitle">
-    Pick an element or a main molecule from the bottom dock. Atoms: hydrogenic ψ with Slater Z<sub>eff</sub>.
-    Molecules: multi-center density (promolecule / simple LCAO) · educational model · a<sub>0</sub> = 1.
-  </p>
+  <div class="top-row">
+    <div class="top-copy">
+      <div class="badge" id="badge">Atoms + molecules · a₀ = 1</div>
+      <h1 id="title">Hydrogen · 1s</h1>
+      <p id="subtitle">
+        Atoms: hydrogenic ψ with Slater Z<sub>eff</sub>.
+        Molecules: multi-center density (promolecule / simple LCAO) · educational model · a<sub>0</sub> = 1.
+      </p>
+    </div>
+    <div class="top-nav" id="topNav" role="navigation" aria-label="Catalog">
+      <button type="button" data-tab="pt" class="on" id="topTabPt">
+        <span class="tn-kicker">Explore</span>
+        Periodic table
+      </button>
+      <button type="button" data-tab="mol" id="topTabMol">
+        <span class="tn-kicker">Explore</span>
+        Main molecules
+      </button>
+    </div>
+  </div>
+  <div class="welcome-help" id="welcomeHelp" role="status">
+    <span>Click <b>Periodic table</b> or <b>Main molecules</b> to start exploring — the panel auto-hides after a few seconds so the 3D view stays clear.</span>
+    <button type="button" id="welcomeDismiss">Got it</button>
+  </div>
 </div>
 
 <div class="panel left">
@@ -616,7 +728,7 @@
   <h2>Element</h2>
   <div class="config-line" id="configLine">1s¹</div>
   <p id="elemBlurb" style="font-size:0.68rem;line-height:1.35;color:#8b9bb0;margin-bottom:8px">
-    Select from the periodic table tab.
+    Select from Periodic table (top right).
   </p>
   <div class="detail-grid" id="elemDataGrid"></div>
   <div class="config-line" id="orbEnergies" style="font-size:0.62rem;margin-top:2px"></div>
@@ -659,7 +771,7 @@
   <h2>Molecule</h2>
   <div class="config-line" id="molFormula">H₂</div>
   <p id="molBlurb" style="font-size:0.68rem;line-height:1.35;color:#8b9bb0;margin-bottom:8px">
-    Select from the Main molecules tab.
+    Select from Main molecules (top right).
   </p>
   <div class="detail-grid" id="molDetailGrid">
     <span>points…</span>
@@ -777,14 +889,12 @@
   <div class="caption" id="caption">…</div>
 </div>
 
-<div class="dock collapsed" id="dock">
+<div class="dock" id="dock">
   <div class="dock-bar">
-    <div class="dock-tabs" id="dockTabs">
-      <button type="button" data-tab="pt" class="on" id="tabPt">Periodic table</button>
-      <button type="button" data-tab="mol" id="tabMol">Main molecules</button>
-    </div>
-    <button type="button" class="dock-toggle" id="dockToggle" title="Expand or collapse">
-      <span class="chev">▼</span> <span id="dockToggleLabel">Show</span>
+    <span class="dock-bar-label" id="dockBarLabel">Periodic table · H → Og</span>
+    <span class="dock-bar-idle" id="dockIdleHint">auto-hides soon</span>
+    <button type="button" class="dock-toggle" id="dockToggle" title="Hide or show catalog">
+      <span id="dockToggleLabel">Hide</span>
     </button>
   </div>
   <div class="dock-body" id="dockBody">
@@ -807,7 +917,7 @@
 </div>
 
 <div class="narration" id="narration"></div>
-<div class="hint">Dock: table · molecules · drag to orbit · n ≤ 20</div>
+<div class="hint">Top: Periodic table · Main molecules · drag to orbit · n ≤ 20</div>
 
 <script type="importmap">
 {
@@ -837,7 +947,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v1.7.0";
+const BUILD = "v1.8.0";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -3155,6 +3265,7 @@ function selectElement(Z, morph = true) {
     c.classList.toggle("on", parseInt(c.dataset.z, 10) === el.Z);
   });
   setQuantum(state.n, state.l, state.m, morph);
+  if (typeof bumpDockIdle === "function") bumpDockIdle(14000);
   const hues = [0xffe08a, 0xffc9a8, 0xa8d8ff, 0xd4a8ff, 0xa8ffc9, 0xffa8d4, 0xc9d4ff];
   const col = hues[(el.period - 1) % hues.length];
   if (nucleus) nucleus.material.color.setHex(col);
@@ -3182,48 +3293,139 @@ function elementGridPos(el) {
 // Dock (collapsible tabs) + molecules
 // =============================================================================
 
-function setDockOpen(open) {
+// Idle auto-collapse: first visit shows PT open; inactivity hides it so the 3D view dominates.
+const DOCK_IDLE_MS = 12000; // ~10–15 s window
+let dockIdleTimer = null;
+let dockCurrentTab = "pt";
+let dockUserPinned = false; // true while user is actively browsing the open panel
+
+function clearDockIdleTimer() {
+  if (dockIdleTimer) {
+    clearTimeout(dockIdleTimer);
+    dockIdleTimer = null;
+  }
+}
+
+function bumpDockIdle(ms = DOCK_IDLE_MS) {
+  clearDockIdleTimer();
+  const dock = $("dock");
+  if (!dock || dock.classList.contains("collapsed")) return;
+  const hint = $("dockIdleHint");
+  if (hint) hint.textContent = "auto-hides soon";
+  dockIdleTimer = setTimeout(() => {
+    // Only auto-hide if still open and not mid-drag in a way we care about
+    setDockOpen(false, { fromIdle: true });
+  }, ms);
+}
+
+function setDockOpen(open, { fromIdle = false, skipIdle = false } = {}) {
   const dock = $("dock");
   if (!dock) return;
   dock.classList.toggle("collapsed", !open);
   document.body.classList.toggle("dock-open", open);
   const lab = $("dockToggleLabel");
-  if (lab) lab.textContent = open ? "Hide" : "Show";
+  if (lab) lab.textContent = open ? "Hide" : "Show catalog";
+  const hint = $("dockIdleHint");
+  if (hint) {
+    hint.style.display = open ? "" : "none";
+    if (open) hint.textContent = "auto-hides soon";
+  }
+  if (open) {
+    if (!skipIdle) bumpDockIdle();
+  } else {
+    clearDockIdleTimer();
+    // When collapsed, top-nav still shows which catalog is selected
+  }
+  if (typeof markDirty === "function") markDirty();
 }
 
-function setDockTab(tab) {
-  const pt = $("panePt");
-  const mol = $("paneMol");
-  if (pt) pt.style.display = tab === "pt" ? "block" : "none";
-  if (mol) mol.style.display = tab === "mol" ? "block" : "none";
-  document.querySelectorAll("#dockTabs button").forEach((b) => {
+function syncTopNav(tab) {
+  document.querySelectorAll("#topNav button[data-tab]").forEach((b) => {
     b.classList.toggle("on", b.dataset.tab === tab);
   });
-  // Opening a tab also expands the dock
-  setDockOpen(true);
+  const label = $("dockBarLabel");
+  if (label) {
+    label.textContent = tab === "mol"
+      ? "Main molecules · catalog"
+      : "Periodic table · H → Og";
+  }
+}
+
+function setDockTab(tab, { open = true } = {}) {
+  dockCurrentTab = tab === "mol" ? "mol" : "pt";
+  const pt = $("panePt");
+  const mol = $("paneMol");
+  if (pt) pt.style.display = dockCurrentTab === "pt" ? "block" : "none";
+  if (mol) mol.style.display = dockCurrentTab === "mol" ? "block" : "none";
+  syncTopNav(dockCurrentTab);
+  if (open) setDockOpen(true);
+  else bumpDockIdle();
+}
+
+function dismissWelcome() {
+  const w = $("welcomeHelp");
+  if (w) w.classList.add("hidden");
+  document.body.classList.remove("welcome-visible");
+  try { sessionStorage.setItem("orbitals_welcome_seen", "1"); } catch (_) {}
 }
 
 function initDock() {
+  // Top nav = primary entry (always visible)
+  $("topNav")?.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-tab]");
+    if (!b) return;
+    dismissWelcome();
+    const tab = b.dataset.tab;
+    const dock = $("dock");
+    const alreadyOpen = dock && !dock.classList.contains("collapsed") && dockCurrentTab === tab;
+    if (alreadyOpen) {
+      // Second click on active tab toggles hide
+      setDockOpen(false);
+    } else {
+      setDockTab(tab, { open: true });
+    }
+  });
+
   $("dockToggle")?.addEventListener("click", () => {
     const dock = $("dock");
     const open = dock?.classList.contains("collapsed");
-    setDockOpen(!!open);
+    if (open) {
+      setDockTab(dockCurrentTab || "pt", { open: true });
+    } else {
+      setDockOpen(false);
+    }
   });
-  $("dockTabs")?.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-tab]");
-    if (!b) return;
-    setDockTab(b.dataset.tab);
-  });
-  // Start collapsed so the animation fills the viewport
-  setDockOpen(false);
-  setDockTab("pt");
-  // but keep collapsed after tab visual default
-  setDockOpen(false);
-  document.querySelectorAll("#dockTabs button").forEach((b) => {
-    b.classList.toggle("on", b.dataset.tab === "pt");
-  });
+
+  // Any interaction inside the catalog resets the idle timer (10–15 s)
+  const body = $("dockBody");
+  if (body) {
+    for (const ev of ["pointerdown", "click", "wheel", "touchstart", "keydown"]) {
+      body.addEventListener(ev, () => {
+        if ($("dock") && !$("dock").classList.contains("collapsed")) bumpDockIdle(14000);
+      }, { passive: true });
+    }
+  }
+  // Selecting an element/molecule also keeps the panel briefly (handled in select* via bump)
+
+  $("welcomeDismiss")?.addEventListener("click", dismissWelcome);
+
+  // First visit: open Periodic table + welcome tip
+  let seen = false;
+  try { seen = sessionStorage.getItem("orbitals_welcome_seen") === "1"; } catch (_) {}
+  if (!seen) {
+    document.body.classList.add("welcome-visible");
+    $("welcomeHelp")?.classList.remove("hidden");
+  } else {
+    $("welcomeHelp")?.classList.add("hidden");
+  }
+
+  dockCurrentTab = "pt";
+  syncTopNav("pt");
   if ($("panePt")) $("panePt").style.display = "block";
   if ($("paneMol")) $("paneMol").style.display = "none";
+  // Expanded by default so newcomers see the table immediately
+  setDockOpen(true);
+  bumpDockIdle(DOCK_IDLE_MS);
 }
 
 function valenceOccProxy(Z) {
@@ -4314,6 +4516,7 @@ function selectMolecule(id, morph = true) {
   document.querySelectorAll(".pt-cell").forEach((c) => c.classList.remove("on"));
 
   refreshMoleculeView(true);
+  if (typeof bumpDockIdle === "function") bumpDockIdle(14000);
 }
 
 function enterAtomMode() {
