@@ -772,7 +772,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.9</div>
+<div class="build" id="build">v2.1.0</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -999,10 +999,11 @@
   </label>
   <div class="config-line" id="physLabMeta" style="font-size:0.62rem;margin:4px 0 8px;color:#c4b5fd">Normal · F=0 · B=0</div>
   <div id="radialPlotWrap" style="display:none;margin:8px 0;padding:8px;background:rgba(0,0,0,0.28);border-radius:10px;border:1px solid rgba(120,150,200,0.12)">
-    <div style="font:600 0.62rem JetBrains Mono,monospace;color:#6ee7b7;margin-bottom:4px">P(r) = 4πr²R²(r) · side panel</div>
+    <div style="font:600 0.62rem JetBrains Mono,monospace;color:#6ee7b7;margin-bottom:2px">P(r) = 4πr²R²(r)</div>
+    <div style="font:500 0.55rem JetBrains Mono,monospace;color:#94a3b8;margin-bottom:4px;line-height:1.35">r=0 = nucleus (left). Peak = most probable shell — not where |ψ|² is brightest.</div>
     <canvas id="radialPlot2d" width="240" height="110" style="width:100%;height:auto;display:block;border-radius:6px;background:#0a0e16"></canvas>
     <div style="display:flex;justify-content:space-between;font:500 0.55rem JetBrains Mono,monospace;color:#64748b;margin-top:2px">
-      <span id="radialPlotX0">0</span><span>r / a₀</span><span id="radialPlotX1">…</span>
+      <span id="radialPlotX0">0 (nucleus)</span><span>r / a₀</span><span id="radialPlotX1">…</span>
     </div>
   </div>
 
@@ -1108,7 +1109,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.9";
+const BUILD = "v2.1.0";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -4411,7 +4412,10 @@ function rebuildPES() {
 }
 
 // =============================================================================
-// RADIAL DISTRIBUTION P(r) = 4πr²|R_nl|² (v2.0.0) — 3D curve in atom mode
+// RADIAL DISTRIBUTION P(r) = 4πr²|R_nl|² — 3D curve in atom mode
+// Anchored at the nucleus: r = 0 at the origin, r increases outward along +x
+// in the same a₀ units as the orbital cloud (so the peak lines up with the shell).
+// Note: |ψ|² is max at the nucleus; P(r) is 0 at r=0 and peaks at the most-probable shell.
 // =============================================================================
 
 function rebuildRadial() {
@@ -4420,51 +4424,108 @@ function rebuildRadial() {
   radialGroup.visible = show;
   if (!show) return;
   const n = state.n, l = state.l;
-  const rMax = Math.min(expectR(n, l, activeZ) * 2.4 + 2.0, state.box * 1.9);
-  // sample + find peak
-  const NP = 220;
+  // Same radial scale as the view box so the diagram sits on the cloud
+  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, Math.max(state.box * 0.95, 2));
+  const NP = 240;
   const P = new Float32Array(NP + 1);
   let pMax = 0;
+  let iPeak = 0;
   for (let i = 0; i <= NP; i++) {
     const r = (rMax * i) / NP;
     const R = radialR(n, l, r, activeZ);
     const p = 4 * Math.PI * r * r * R * R;
     P[i] = p;
-    if (p > pMax) pMax = p;
+    if (p > pMax) {
+      pMax = p;
+      iPeak = i;
+    }
   }
   if (pMax <= 0) return;
-  const xW = state.box * 1.5;    // curve width in scene units
-  const yH = state.box * 0.55;   // peak height
+  const rMp = (rMax * iPeak) / NP; // most-probable radius (peak of P)
+  // Height of the P(r) “mountain” in scene units (not a physical a₀)
+  const yH = state.box * 0.40;
+  const tubeR = Math.max(0.018, state.box * 0.0035);
+
+  // Curve: r along +x from the nucleus, P(r) up along +y (true 1:1 r ↔ a₀)
   const pts = [];
   for (let i = 0; i <= NP; i++) {
-    const x = -xW / 2 + (xW * i) / NP;
-    pts.push(new THREE.Vector3(x, (P[i] / pMax) * yH, 0));
+    const r = (rMax * i) / NP;
+    pts.push(new THREE.Vector3(r, (P[i] / pMax) * yH, 0));
   }
-  radialGroup.add(curveTube(pts, 0x4ade80, Math.max(0.02, state.box * 0.004)));
-  // Labeled local axes: r / a₀ along the baseline, P(r) normalized vertically.
+  radialGroup.add(curveTube(pts, 0x4ade80, tubeR));
+
+  // Faint baseline r-axis on the floor through the nucleus
+  const basePts = [
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(rMax, 0, 0),
+  ];
+  radialGroup.add(curveTube(basePts, 0x334155, tubeR * 0.55));
+
+  // Axes origin = nucleus (r=0). r along +x in a₀; P vertical (normalized).
   const dg = diagramAxes([
-    { dir: "x", min: 0, max: rMax, len: xW, name: "r", unit: "a₀" },
-    { dir: "y", min: 0, max: 1, len: yH * 1.08, name: "P(r)", unit: "norm." },
-  ], { size: xW, radius: 0.0035, labelSize: 0.034, tickLabelSize: 0.022 });
-  dg.position.set(-xW / 2, 0, 0);
+    { dir: "x", min: 0, max: rMax, len: rMax, name: "r", unit: "a₀", color: 0x64748b, labelColor: "#94a3b8" },
+    { dir: "y", min: 0, max: 1, len: yH * 1.05, name: "P(r)", unit: "norm.", color: 0x4ade80, labelColor: "#86efac" },
+  ], { size: Math.max(rMax, yH), radius: 0.0032, labelSize: 0.032, tickLabelSize: 0.02 });
+  // already at (0,0,0) = nucleus
   radialGroup.add(dg);
+
+  // Peak marker on the curve + vertical drop to the r-axis
+  const peakY = (P[iPeak] / pMax) * yH;
+  const peakMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+  const peakBall = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(0.045, state.box * 0.01), 12, 12),
+    peakMat
+  );
+  peakBall.position.set(rMp, peakY, 0);
+  radialGroup.add(peakBall);
+  radialGroup.add(curveTube(
+    [new THREE.Vector3(rMp, 0, 0), new THREE.Vector3(rMp, peakY, 0)],
+    0xfde047,
+    tubeR * 0.45
+  ));
+
+  // Equatorial ring at r_mp — same radius as the bright shell of |ψ| mass
+  if (rMp > 0.05) {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(rMp, Math.max(0.012, state.box * 0.0028), 10, 72),
+      new THREE.MeshBasicMaterial({
+        color: 0x4ade80,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+      })
+    );
+    // Default torus lies in xy; atom uses z-up so xy is the equatorial plane — good.
+    radialGroup.add(ring);
+  }
+
+  // Title + key: P(0)=0 even when |ψ| is brightest at the nucleus
   const el = state.element;
   const rt = titleSprite(
-    `Radial distribution 4πr²R²(r) — ${el ? el.sym + " " : ""}${subshellKey(n, l)}`,
-    xW * 0.03
+    `P(r)=4πr²R² · ${el ? el.sym + " " : ""}${subshellKey(n, l)} · r=0 at nucleus · peak r≈${rMp.toFixed(2)} a₀`,
+    Math.max(0.14, state.box * 0.028)
   );
-  rt.position.set(0, yH * 1.3, 0);
+  rt.position.set(rMax * 0.45, yH * 1.28, 0);
   radialGroup.add(rt);
-  // radial node markers: sign changes of R_nl(r)
+  const hint = titleSprite(
+    "Peak = most probable shell (not |ψ|² max — that is at the nucleus)",
+    Math.max(0.11, state.box * 0.022)
+  );
+  hint.position.set(rMax * 0.45, yH * 1.12, 0);
+  radialGroup.add(hint);
+
+  // Radial nodes of R_nl (sign changes) on the baseline
   const nodeMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
   let prevS = Math.sign(radialR(n, l, 1e-4, activeZ));
   for (let i = 1; i <= NP; i++) {
     const r = (rMax * i) / NP;
     const s = Math.sign(radialR(n, l, r, activeZ));
     if (s !== 0 && prevS !== 0 && s !== prevS) {
-      const x = -xW / 2 + (xW * i) / NP;
-      const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.05, state.box * 0.008), 10, 10), nodeMat);
-      m.position.set(x, 0, 0);
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.max(0.04, state.box * 0.007), 10, 10),
+        nodeMat
+      );
+      m.position.set(r, 0, 0);
       radialGroup.add(m);
     }
     if (s !== 0) prevS = s;
@@ -6938,49 +6999,80 @@ function drawRadialPlot2D() {
   wrap.style.display = show ? "block" : "none";
   if (!show) return;
   const n = state.n, l = state.l;
-  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, 40);
+  // Match 3D radial extent so peak position agrees with the scene diagram
+  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, Math.max((state.box || 12) * 0.95, 2), 40);
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
+  const x0 = 32, x1 = W - 8, yBase = H - 14, yTop = 10;
   // grid
   ctx.strokeStyle = "rgba(100,120,150,0.25)";
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
-    const y = (H - 12) * i / 4 + 4;
-    ctx.beginPath(); ctx.moveTo(28, y); ctx.lineTo(W - 6, y); ctx.stroke();
+    const y = yTop + ((yBase - yTop) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
   }
+  // nucleus marker at left (r=0)
+  ctx.fillStyle = "#fbbf24";
+  ctx.beginPath();
+  ctx.arc(x0, yBase, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
   const NP = 200;
   let pMax = 0;
+  let iPeak = 0;
   const P = new Float32Array(NP + 1);
   for (let i = 0; i <= NP; i++) {
     const r = (rMax * i) / NP;
     const R = radialR(n, l, r, activeZ);
     P[i] = 4 * Math.PI * r * r * R * R;
-    if (P[i] > pMax) pMax = P[i];
+    if (P[i] > pMax) {
+      pMax = P[i];
+      iPeak = i;
+    }
   }
   if (pMax <= 0) return;
+  const rMp = (rMax * iPeak) / NP;
+  const xAt = (i) => x0 + ((x1 - x0) * i) / NP;
+  const yAt = (p) => yBase - ((yBase - yTop) * p) / pMax;
+
+  // peak guide line
+  const xPeak = xAt(iPeak);
+  ctx.strokeStyle = "rgba(253,224,71,0.55)";
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(xPeak, yBase);
+  ctx.lineTo(xPeak, yAt(P[iPeak]));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
   // fill under curve
   ctx.beginPath();
   for (let i = 0; i <= NP; i++) {
-    const x = 28 + ((W - 34) * i) / NP;
-    const y = (H - 12) - ((H - 20) * P[i]) / pMax;
+    const x = xAt(i);
+    const y = yAt(P[i]);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.lineTo(W - 6, H - 12);
-  ctx.lineTo(28, H - 12);
+  ctx.lineTo(x1, yBase);
+  ctx.lineTo(x0, yBase);
   ctx.closePath();
   ctx.fillStyle = "rgba(74,222,128,0.15)";
   ctx.fill();
   // stroke
   ctx.beginPath();
   for (let i = 0; i <= NP; i++) {
-    const x = 28 + ((W - 34) * i) / NP;
-    const y = (H - 12) - ((H - 20) * P[i]) / pMax;
+    const x = xAt(i);
+    const y = yAt(P[i]);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.strokeStyle = "#4ade80";
   ctx.lineWidth = 2;
   ctx.stroke();
+  // peak dot
+  ctx.fillStyle = "#fde047";
+  ctx.beginPath();
+  ctx.arc(xPeak, yAt(P[iPeak]), 3.5, 0, Math.PI * 2);
+  ctx.fill();
   // radial nodes
   let prevS = Math.sign(radialR(n, l, 1e-4, activeZ));
   ctx.fillStyle = "#f87171";
@@ -6988,8 +7080,7 @@ function drawRadialPlot2D() {
     const r = (rMax * i) / NP;
     const s = Math.sign(radialR(n, l, r, activeZ));
     if (s !== 0 && prevS !== 0 && s !== prevS) {
-      const x = 28 + ((W - 34) * i) / NP;
-      ctx.beginPath(); ctx.arc(x, H - 12, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(xAt(i), yBase, 3, 0, Math.PI * 2); ctx.fill();
     }
     if (s !== 0) prevS = s;
   }
@@ -6997,7 +7088,10 @@ function drawRadialPlot2D() {
   ctx.fillStyle = "#8b9bb0";
   ctx.font = "10px JetBrains Mono, monospace";
   ctx.fillText("P(r)", 4, 12);
-  if ($("radialPlotX0")) $("radialPlotX0").textContent = "0";
+  ctx.fillStyle = "#fde047";
+  ctx.font = "9px JetBrains Mono, monospace";
+  ctx.fillText(`peak ${rMp.toFixed(2)}`, Math.min(xPeak + 4, W - 52), yAt(P[iPeak]) - 4);
+  if ($("radialPlotX0")) $("radialPlotX0").textContent = "0 (nucleus)";
   if ($("radialPlotX1")) $("radialPlotX1").textContent = rMax.toFixed(1);
 }
 
