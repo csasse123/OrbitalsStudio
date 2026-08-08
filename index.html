@@ -755,7 +755,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.6</div>
+<div class="build" id="build">v2.0.7</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -963,19 +963,20 @@
     <button type="button" data-phys="vib" title="Molecule only: stretch nuclei">Vibrate nuclei</button>
   </div>
   <div id="physLabHelp" style="margin:6px 0 8px;padding:8px 10px;border-radius:10px;border:1px solid rgba(125,211,252,0.2);background:rgba(8,20,36,0.75);font-size:0.68rem;line-height:1.45;color:#b8c8d8">
-    <b style="color:#7dd3fc">E-field</b> rigidly slides the orbital + nucleus along +z (same brightness).<br>
-    At E≈1 the shift is ~⅓ of the view box — easy to see. Gold arrow = +z only.<br>
-    <b>Vibration</b> only works on molecules (Main molecules → H₂). On H atom it does nothing.
+    <b style="color:#fbbf24">E-field (Stark)</b> slides orbital + nucleus along +z.<br>
+    <b style="color:#c084fc">B-field (Zeeman)</b> stretches the cloud along B and spins lobes (see help below).<br>
+    <b style="color:#fcd34d">Vib amplitude</b> = nuclear stretch strength — <b>molecules only</b> (Main → H₂ → Vibrate nuclei).
   </div>
   <label class="row">E-field (Stark → z)
     <input id="efield" type="range" min="0" max="1" step="0.01" value="0" />
     <span class="val" id="efieldVal">0.00</span>
   </label>
-  <label class="row">B-field (Zeeman)
+  <label class="row">B-field (Zeeman → z)
     <input id="bfield" type="range" min="0" max="1" step="0.01" value="0" />
     <span class="val" id="bfieldVal">0.00</span>
   </label>
-  <label class="row">Vib amplitude
+  <label class="row" id="vibAmpRow" title="Nuclear bond stretch — only with Vibrate nuclei on a molecule">
+    Vib amp = bond stretch
     <input id="vibAmp" type="range" min="0" max="1" step="0.01" value="0.45" />
     <span class="val" id="vibAmpVal">0.45</span>
   </label>
@@ -1088,7 +1089,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.6";
+const BUILD = "v2.0.7";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2239,11 +2240,37 @@ vec3 hsl2rgb(vec3 c) {
   return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0 * c.z - 1.0));
 }
 
-// Same pure Stark shift as volume (shape only, brightness unchanged)
-vec3 starkSamplePoint(vec3 p) {
+// Inverse map display→sample: shape only (Stark + Zeeman), brightness unchanged.
+// Pure Zeeman |nlm⟩ leaves |ψ|² invariant for m=0 — we draw the diamagnetic
+// cartoon (stretch ‖ B) + Larmor precession (lobes spin when |m|>0 or real px/py).
+vec3 fieldSamplePoint(vec3 p) {
   float F = clamp(uFieldE, 0.0, 1.0);
-  float shift = F * 0.35 * uBox; // clear shift at F=1, still in-frame
-  return p - vec3(0.0, 0.0, shift);
+  float B = clamp(uFieldB, 0.0, 1.0);
+  vec3 q = p;
+
+  // 1) Larmor precession about B ∥ z (uses animated phase clock)
+  if (B > 0.005) {
+    float mAbs = abs(uM);
+    float rate = 2.4 * B * (0.50 + mAbs); // rad per phase-time unit
+    float sgn = uM < -0.05 ? -1.0 : 1.0;
+    float ang = uPhaseTime * rate * sgn;
+    float c = cos(ang);
+    float s = sin(ang);
+    q = vec3(c * q.x - s * q.y, s * q.x + c * q.y, q.z);
+  }
+
+  // 2) Diamagnetic: density elongates along B, contracts in xy (visible on 1s!)
+  //    dens_display(p) = dens0(p_xy·(1+αB), p_z/(1+βB))
+  if (B > 0.005) {
+    float sxy = 1.0 + 0.58 * B;          // sample expand xy → thinner cloud in xy
+    float sz  = 1.0 / (1.0 + 0.48 * B);  // sample compress z → taller cloud on z
+    q = vec3(q.x * sxy, q.y * sxy, q.z * sz);
+  }
+
+  // 3) Stark: rigid +z slide of the cloud
+  float shift = F * 0.35 * uBox;
+  q.z -= shift;
+  return q;
 }
 
 void main() {
@@ -2255,7 +2282,7 @@ void main() {
     int n = int(uN + 0.5);
     int l = int(uL + 0.5);
     int m = int(uM >= 0.0 ? uM + 0.5 : uM - 0.5);
-    vec3 pS = starkSamplePoint(p);
+    vec3 pS = fieldSamplePoint(p);
     if (uPhysMode > 0.5 && uPhysMode < 1.5) {
       // TDSE packet (same mix as volume)
       float re = 0.0, im = 0.0;
@@ -2292,9 +2319,10 @@ void main() {
       ph = re;
     } else {
       dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph);
+      // Zeeman phase tint (color only — shape already from fieldSamplePoint)
       if (uFieldB > 0.01) {
         float zn = clamp(p.z / max(uBox * 0.5, 1.0), -1.0, 1.0);
-        ph += 0.55 * uFieldB * float(m) * zn;
+        ph += 0.45 * uFieldB * (float(m) + 0.35) * zn;
       }
       if (uPhysMode > 2.5 && uPhysMode < 3.5) {
         float spin = tanh(p.z * 0.5 + float(m) * 0.3);
@@ -2412,6 +2440,28 @@ varying vec3 vDirection;
 
 ${FIELD_GLSL}
 
+// Same inverse map as point cloud: Stark + Zeeman shape only (no dens kill)
+vec3 fieldSamplePoint(vec3 p) {
+  float F = clamp(uFieldE, 0.0, 1.0);
+  float B = clamp(uFieldB, 0.0, 1.0);
+  vec3 q = p;
+  if (B > 0.005) {
+    float mAbs = abs(uM);
+    float rate = 2.4 * B * (0.50 + mAbs);
+    float sgn = uM < -0.05 ? -1.0 : 1.0;
+    float ang = uPhaseTime * rate * sgn;
+    float c = cos(ang);
+    float s = sin(ang);
+    q = vec3(c * q.x - s * q.y, s * q.x + c * q.y, q.z);
+    float sxy = 1.0 + 0.58 * B;
+    float sz  = 1.0 / (1.0 + 0.48 * B);
+    q = vec3(q.x * sxy, q.y * sxy, q.z * sz);
+  }
+  float shift = F * 0.35 * uBox;
+  q.z -= shift;
+  return q;
+}
+
 bool hitBox(vec3 ro, vec3 rd, float b, out float t0, out float t1) {
   vec3 invD = 1.0 / rd;
   vec3 tmn = (-vec3(b) - ro) * invD;
@@ -2480,32 +2530,28 @@ void main() {
         densMul *= 1.6;
       }
     } else {
-      // Physics-lab atom branch: shape-only effects — brightness left to uDensity/uAutoGain
+      // Physics-lab atom branch: shape-only Stark/Zeeman — brightness left alone
       {
-        // Keep densMul fixed (same as normal orbital path)
+        vec3 pS = fieldSamplePoint(pos);
         if (uPhysMode > 0.5 && uPhysMode < 1.5) {
-          // TDSE: fixed coefficients; time only rotates relative phases (no densMul hack)
+          // TDSE: fixed coefficients; time only rotates relative phases
           float re = 0.0, im = 0.0;
           float c0 = 0.75, c1 = 0.50, c2 = 0.30;
-          // normalize |c|^2 ~ 1 so brightness matches a single orbital
           float cn = inversesqrt(c0*c0 + c1*c1 + c2*c2);
           c0 *= cn; c1 *= cn; c2 *= cn;
           int nn0 = n;
           int nn1 = min(n + 1, 12);
           int nn2 = min(n + 2, 14);
           float t = uTdseT;
-          // optional mild field shift (shape only)
-          float shiftPkt = min(uFieldE * 0.35 * uBox, 0.45 * float(n) / max(uZ, 0.5));
-          vec3 pPkt = pos - vec3(0.0, 0.0, shiftPkt);
           float ph0;
-          float d0 = psi_dens_phase(nn0, l, m, pPkt, uZ, uBasis, ph0);
+          float d0 = psi_dens_phase(nn0, l, m, pS, uZ, uBasis, ph0);
           float a0 = (ph0 >= 0.0 ? 1.0 : -1.0) * sqrt(max(d0, 0.0));
           float w0 = 1.0 / max(float(nn0 * nn0), 1.0);
           re += c0 * a0 * cos(-w0 * t * 3.0);
           im += c0 * a0 * sin(-w0 * t * 3.0);
           if (nn1 > nn0 && l < nn1) {
             float ph1b;
-            float d1 = psi_dens_phase(nn1, l, m, pPkt, uZ, uBasis, ph1b);
+            float d1 = psi_dens_phase(nn1, l, m, pS, uZ, uBasis, ph1b);
             float a1 = (ph1b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d1, 0.0));
             float w1 = 1.0 / max(float(nn1 * nn1), 1.0);
             re += c1 * a1 * cos(-w1 * t * 3.0);
@@ -2513,7 +2559,7 @@ void main() {
           }
           if (nn2 > nn1 && l < nn2) {
             float ph2b;
-            float d2 = psi_dens_phase(nn2, l, m, pPkt, uZ, uBasis, ph2b);
+            float d2 = psi_dens_phase(nn2, l, m, pS, uZ, uBasis, ph2b);
             float a2 = (ph2b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d2, 0.0));
             float w2 = 1.0 / max(float(nn2 * nn2), 1.0);
             re += c2 * a2 * cos(-w2 * t * 3.0);
@@ -2522,21 +2568,12 @@ void main() {
           dens = re * re + im * im;
           psiPhase = re;
         } else {
-          // Stark: PURE geometric shift of the orbital (rigid translation along z).
-          // No dens*=pol, no densMul change → same brightness as F=0.
-          float F = clamp(uFieldE, 0.0, 1.0);
-          // Gentle in-box shift: at F=1, at most ~25% of half-box
-          float shift = F * 0.35 * uBox; // same as point cloud — clear rigid shift
-          vec3 pS = pos - vec3(0.0, 0.0, shift);
           dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph1);
           psiPhase = ph1;
-          // Zeeman: phase-color bias only (no density kill)
+          // Zeeman phase tint only (shape already from fieldSamplePoint)
           if (uFieldB > 0.01) {
             float zn = clamp(pos.z / max(uBox * 0.5, 1.0), -1.0, 1.0);
-            psiPhase += 0.55 * uFieldB * float(m) * zn;
-            // tiny density tilt that preserves mean ~1: (1+a)/(1-a) balanced via clamp
-            float tilt = 1.0 + 0.25 * uFieldB * zn;
-            dens *= clamp(tilt, 0.75, 1.25);
+            psiPhase += 0.45 * uFieldB * (float(m) + 0.35) * zn;
           }
           if (uMorph > 0.001) {
             float ph2;
@@ -2546,7 +2583,6 @@ void main() {
           }
         }
         if (uPhysMode > 2.5 && uPhysMode < 3.5) {
-          // Spin: recolor only (keep dens)
           float spin = tanh(pos.z * 0.5 + float(m) * 0.3);
           psiPhase = mix(psiPhase, spin, 0.75);
         }
@@ -6224,9 +6260,9 @@ function updatePhysLabHelp() {
   const help = {
     off:
       `<b style="color:#7dd3fc">Normal orbital</b> — |ψ|² for n=${n}, ℓ=${l}, m=${m}.<br>` +
-      `• Drag <b>E-field to 0.5–0.8</b>: cloud should <b>bulk to +z</b>; gold arrow shows field.<br>` +
-      `• Particle points are <b>hidden</b> while F/B &gt; 0 (they were covering the effect).<br>` +
-      `• Clearest: H, n=2, ℓ=1, m=0, then raise E-field.`,
+      `• <b style="color:#fbbf24">E-field</b>: cloud + nucleus slide along +z (Stark). Try 0.5–0.8.<br>` +
+      `• <b style="color:#c084fc">B-field</b>: soft Zeeman — best with <b>m≠0</b> (try m=1). Cloud stretches ‖ B and lobes precess.<br>` +
+      `• <b style="color:#fcd34d">Vib amp</b> does nothing on atoms — it is bond stretch for molecules only.`,
     tdse:
       `<b style="color:#7dd3fc">Wave packet (TDSE)</b> — superposition of n+(n+1)+(n+2).<br>` +
       `• Watch the cloud <b>breathe/pulse</b> (status t=…s). Not a different static shape only.<br>` +
@@ -6242,13 +6278,25 @@ function updatePhysLabHelp() {
       `• Warm lobes ≈ α, cool ≈ β (z-axis bias + m).<br>` +
       `• Combine with B-field to exaggerate the split.`,
     vib: isMol
-      ? `<b style="color:#fcd34d">Vibrate nuclei</b> — stretch along the bond; orbital field follows.<br>` +
-        `• Drag <b>Vib amplitude</b>. Nuclei should oscillate continuously.<br>` +
-        `• Works best on diatomics (H₂, N₂, CO).`
+      ? `<b style="color:#fcd34d">Vibrate nuclei</b> — classical bond stretch, not an electron effect.<br>` +
+        `• <b>Vib amp</b> = how far nuclei swing (0 = frozen, 1 = big stretch/compress).<br>` +
+        `• Bond length ≈ R₀ · (1 + 0.55·amp·sin(ωt)). Orbital cloud follows the nuclei.<br>` +
+        `• Best on diatomics: H₂, N₂, CO. Watch the two balls oscillate.`
       : `<b style="color:#f87171">Vibration needs a molecule</b><br>` +
-        `Open <b>Main molecules</b> → pick H₂ → click <b>Vibrate nuclei</b>.`,
+        `A single atom has no bond to stretch. Open <b>Main molecules</b> → H₂ → <b>Vibrate nuclei</b>, then drag Vib amp.`,
   };
   el.innerHTML = help[mode] || help.off;
+  // Dim vib slider unless vibration is live on a molecule
+  const vibRow = $("vibAmpRow");
+  const vibEl = $("vibAmp");
+  const vibLive = isMol && mode === "vib";
+  if (vibRow) {
+    vibRow.style.opacity = vibLive ? "1" : "0.45";
+    vibRow.title = vibLive
+      ? "Nuclear stretch amplitude: 0 = frozen bond, 1 = large oscillation"
+      : "Inactive on atoms. Load a molecule → click Vibrate nuclei, then use this slider.";
+  }
+  if (vibEl) vibEl.disabled = !vibLive;
 }
 
 function updatePhysLabMeta() {
@@ -6257,11 +6305,13 @@ function updatePhysLabMeta() {
   const F = volumeUniforms.uFieldE?.value ?? 0;
   const B = volumeUniforms.uFieldB?.value ?? 0;
   const mode = state.physLab || "off";
+  const amp = parseFloat($("vibAmp")?.value || 0);
   const names = { off: "Normal", tdse: "Wave packet LIVE", diff: "Δρ LIVE", spin: "Spin LIVE", vib: "Vibration LIVE" };
   let s = `${names[mode] || mode} · E=${F.toFixed(2)} · B=${B.toFixed(2)}`;
   if (mode === "tdse") s += ` · t=${(state.tdseT || 0).toFixed(1)}s`;
-  if (mode === "vib" && state.vibActive) s += ` · Q sin(ωt)`;
+  if (mode === "vib" && state.vibActive) s += ` · amp=${amp.toFixed(2)} · Q=sin(ωt)`;
   if ((mode === "diff" || mode === "vib") && state.target !== "molecule") s += " · needs molecule";
+  if (mode === "vib" && state.target !== "molecule") s += " · vib amp idle";
   el.textContent = s;
   // live badge while lab is active
   if (mode !== "off" || F > 0.01 || B > 0.01) {
@@ -6426,12 +6476,22 @@ function initPhysicsLab() {
     volumeUniforms.uFieldB.value = v;
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
     volumeMesh.visible = true;
+    pointsMesh.visible = true;
     updatePhysLabMeta();
     updatePhysLabHelp();
     updateFieldIndicator();
     markDirty();
   });
   wireRange("vibAmp", "vibAmpVal", (v) => {
+    // Only meaningful while "Vibrate nuclei" is live on a molecule
+    if (!state.vibActive || state.target !== "molecule") {
+      if ($("caption")) {
+        $("caption").textContent =
+          "Vib amp = nuclear bond stretch. Open Main molecules → pick H₂ → click Vibrate nuclei, then drag this.";
+      }
+      updatePhysLabHelp();
+      return;
+    }
     updatePhysLabMeta();
     markDirty();
   });
