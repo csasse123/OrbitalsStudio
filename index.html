@@ -999,8 +999,8 @@
   </label>
   <div class="config-line" id="physLabMeta" style="font-size:0.62rem;margin:4px 0 8px;color:#c4b5fd">Normal · F=0 · B=0</div>
   <div id="radialPlotWrap" style="display:none;margin:8px 0;padding:8px;background:rgba(0,0,0,0.28);border-radius:10px;border:1px solid rgba(120,150,200,0.12)">
-    <div style="font:600 0.62rem JetBrains Mono,monospace;color:#6ee7b7;margin-bottom:2px">P(r) = 4πr²R²(r)</div>
-    <div style="font:500 0.55rem JetBrains Mono,monospace;color:#94a3b8;margin-bottom:4px;line-height:1.35">r=0 = nucleus (left). Peak = most probable shell — not where |ψ|² is brightest.</div>
+    <div style="font:600 0.62rem JetBrains Mono,monospace;color:#6ee7b7;margin-bottom:2px">P(r) = 4πr²R² · spherical r</div>
+    <div style="font:500 0.55rem JetBrains Mono,monospace;color:#94a3b8;margin-bottom:4px;line-height:1.35">Scene: 3D ridge spun around nucleus + polar floor. Left = r=0. Peak = most probable shell (not |ψ|² max).</div>
     <canvas id="radialPlot2d" width="240" height="110" style="width:100%;height:auto;display:block;border-radius:6px;background:#0a0e16"></canvas>
     <div style="display:flex;justify-content:space-between;font:500 0.55rem JetBrains Mono,monospace;color:#64748b;margin-top:2px">
       <span id="radialPlotX0">0 (nucleus)</span><span>r / a₀</span><span id="radialPlotX1">…</span>
@@ -1011,7 +1011,7 @@
   <label class="row"><input id="nucleus" type="checkbox" checked /> nucleus</label>
   <label class="row"><input id="axes" type="checkbox" /> axes</label>
   <label class="row"><input id="grid" type="checkbox" /> grid planes</label>
-  <label class="row"><input id="radial" type="checkbox" checked /> radial 4πr²R²</label>
+  <label class="row"><input id="radial" type="checkbox" checked /> radial P(r) 3D (spherical)</label>
   <label class="row"><input id="autoRotate" type="checkbox" checked /> auto-rotate</label>
   <button type="button" class="primary" id="btnTour" title="Guided walk: nℓm → Stark → Zeeman for this element">Tour this element</button>
   <button type="button" id="btnTourTable" style="margin-top:6px" title="Short stops on famous elements across the table">Tour famous elements</button>
@@ -1109,7 +1109,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.1.0";
+const BUILD = "v2.1.1";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -4412,21 +4412,18 @@ function rebuildPES() {
 }
 
 // =============================================================================
-// RADIAL DISTRIBUTION P(r) = 4πr²|R_nl|² — 3D curve in atom mode
-// Anchored at the nucleus: r = 0 at the origin, r increases outward along +x
-// in the same a₀ units as the orbital cloud (so the peak lines up with the shell).
-// Note: |ψ|² is max at the nucleus; P(r) is 0 at r=0 and peaks at the most-probable shell.
+// RADIAL DISTRIBUTION P(r) = 4πr²|R_nl|² — spherical (3D + polar) atom mode
+//
+// Spherical coordinates: r from the nucleus (origin). P(r) is isotropic in θ,φ,
+// so we show:
+//   1) Surface of revolution: height z ∝ P(r) on the equatorial plane (ridge = shell)
+//   2) Polar floor: 2D disk colored by P(r) (θ free, r radial)
+//   3) Profile curve + r_mp ring for reading the most-probable radius
+// Note: |ψ|² max at nucleus; P(0)=0; peak of P = most probable shell radius.
 // =============================================================================
 
-function rebuildRadial() {
-  clearGroupDeep(radialGroup);
-  const show = state.showRadial && state.target === "atom";
-  radialGroup.visible = show;
-  if (!show) return;
-  const n = state.n, l = state.l;
-  // Same radial scale as the view box so the diagram sits on the cloud
-  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, Math.max(state.box * 0.95, 2));
-  const NP = 240;
+/** Sample P(r) on [0, rMax]; returns { P, pMax, iPeak, rMp }. */
+function sampleRadialP(n, l, rMax, NP = 220) {
   const P = new Float32Array(NP + 1);
   let pMax = 0;
   let iPeak = 0;
@@ -4440,81 +4437,241 @@ function rebuildRadial() {
       iPeak = i;
     }
   }
-  if (pMax <= 0) return;
-  const rMp = (rMax * iPeak) / NP; // most-probable radius (peak of P)
-  // Height of the P(r) “mountain” in scene units (not a physical a₀)
-  const yH = state.box * 0.40;
-  const tubeR = Math.max(0.018, state.box * 0.0035);
+  return { P, pMax, iPeak, rMp: (rMax * iPeak) / NP, NP, rMax };
+}
 
-  // Curve: r along +x from the nucleus, P(r) up along +y (true 1:1 r ↔ a₀)
-  const pts = [];
-  for (let i = 0; i <= NP; i++) {
-    const r = (rMax * i) / NP;
-    pts.push(new THREE.Vector3(r, (P[i] / pMax) * yH, 0));
+function pAtSample(sample, r) {
+  const { P, NP, rMax, pMax } = sample;
+  if (pMax <= 0 || rMax <= 0) return 0;
+  const t = Math.max(0, Math.min(1, r / rMax));
+  const f = t * NP;
+  const i0 = Math.floor(f);
+  const i1 = Math.min(NP, i0 + 1);
+  const u = f - i0;
+  return ((P[i0] * (1 - u) + P[i1] * u) / pMax);
+}
+
+/** Vertex-colored surface of revolution: (r,φ) → (r cosφ, r sinφ, h·P(r)). z-up atom frame. */
+function buildRadialRevolutionSurface(sample, height, nR = 72, nPhi = 48) {
+  const { rMax, pMax } = sample;
+  if (pMax <= 0) return null;
+  const nV = (nR + 1) * (nPhi + 1);
+  const positions = new Float32Array(nV * 3);
+  const colors = new Float32Array(nV * 3);
+  const indices = [];
+  let v = 0;
+  for (let i = 0; i <= nR; i++) {
+    const r = (rMax * i) / nR;
+    const pn = pAtSample(sample, r); // 0..1
+    const h = pn * height;
+    // color: deep teal (low) → green → yellow (peak)
+    const cr = 0.12 + 0.85 * pn * pn;
+    const cg = 0.45 + 0.50 * pn;
+    const cb = 0.35 * (1 - pn) + 0.08;
+    for (let j = 0; j <= nPhi; j++) {
+      const phi = (j / nPhi) * Math.PI * 2;
+      const x = r * Math.cos(phi);
+      const y = r * Math.sin(phi);
+      positions[v * 3] = x;
+      positions[v * 3 + 1] = y;
+      positions[v * 3 + 2] = h;
+      colors[v * 3] = cr;
+      colors[v * 3 + 1] = cg;
+      colors[v * 3 + 2] = cb;
+      v++;
+    }
   }
-  radialGroup.add(curveTube(pts, 0x4ade80, tubeR));
+  for (let i = 0; i < nR; i++) {
+    for (let j = 0; j < nPhi; j++) {
+      const a = i * (nPhi + 1) + j;
+      const b = a + nPhi + 1;
+      indices.push(a, b, a + 1);
+      indices.push(b, b + 1, a + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.78,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 2;
+  return mesh;
+}
 
-  // Faint baseline r-axis on the floor through the nucleus
-  const basePts = [
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(rMax, 0, 0),
-  ];
-  radialGroup.add(curveTube(basePts, 0x334155, tubeR * 0.55));
+/** Flat polar disk in xy: color = P(r) — 2D spherical (r, φ) map. */
+function buildRadialPolarFloor(sample, nR = 64, nPhi = 56) {
+  const { rMax, pMax } = sample;
+  if (pMax <= 0) return null;
+  const nV = (nR + 1) * (nPhi + 1);
+  const positions = new Float32Array(nV * 3);
+  const colors = new Float32Array(nV * 3);
+  const indices = [];
+  let v = 0;
+  const zFloor = -Math.max(0.02, sample.rMax * 0.004);
+  for (let i = 0; i <= nR; i++) {
+    const r = (rMax * i) / nR;
+    const pn = pAtSample(sample, r);
+    const cr = 0.08 + 0.75 * pn;
+    const cg = 0.18 + 0.72 * pn;
+    const cb = 0.28 + 0.15 * (1 - pn);
+    for (let j = 0; j <= nPhi; j++) {
+      const phi = (j / nPhi) * Math.PI * 2;
+      positions[v * 3] = r * Math.cos(phi);
+      positions[v * 3 + 1] = r * Math.sin(phi);
+      positions[v * 3 + 2] = zFloor;
+      colors[v * 3] = cr;
+      colors[v * 3 + 1] = cg;
+      colors[v * 3 + 2] = cb;
+      v++;
+    }
+  }
+  for (let i = 0; i < nR; i++) {
+    for (let j = 0; j < nPhi; j++) {
+      const a = i * (nPhi + 1) + j;
+      const b = a + nPhi + 1;
+      indices.push(a, b, a + 1);
+      indices.push(b, b + 1, a + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.55,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 1;
+  return mesh;
+}
 
-  // Axes origin = nucleus (r=0). r along +x in a₀; P vertical (normalized).
-  const dg = diagramAxes([
-    { dir: "x", min: 0, max: rMax, len: rMax, name: "r", unit: "a₀", color: 0x64748b, labelColor: "#94a3b8" },
-    { dir: "y", min: 0, max: 1, len: yH * 1.05, name: "P(r)", unit: "norm.", color: 0x4ade80, labelColor: "#86efac" },
-  ], { size: Math.max(rMax, yH), radius: 0.0032, labelSize: 0.032, tickLabelSize: 0.02 });
-  // already at (0,0,0) = nucleus
-  radialGroup.add(dg);
+function rebuildRadial() {
+  clearGroupDeep(radialGroup);
+  const show = state.showRadial && state.target === "atom";
+  radialGroup.visible = show;
+  if (!show) return;
+  const n = state.n, l = state.l;
+  const rMax = Math.min(expectR(n, l, activeZ) * 2.6 + 1.5, Math.max(state.box * 0.95, 2));
+  const sample = sampleRadialP(n, l, rMax, 240);
+  if (sample.pMax <= 0) return;
+  const { rMp, P, NP, pMax } = sample;
+  // Height of the 3D ridge (display units, not a₀)
+  const hMax = state.box * 0.38;
+  const tubeR = Math.max(0.016, state.box * 0.0032);
 
-  // Peak marker on the curve + vertical drop to the r-axis
-  const peakY = (P[iPeak] / pMax) * yH;
-  const peakMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
-  const peakBall = new THREE.Mesh(
-    new THREE.SphereGeometry(Math.max(0.045, state.box * 0.01), 12, 12),
-    peakMat
-  );
-  peakBall.position.set(rMp, peakY, 0);
-  radialGroup.add(peakBall);
+  // --- 3D surface of revolution (spherical shell geometry) ---
+  const surf = buildRadialRevolutionSurface(sample, hMax, 80, 56);
+  if (surf) radialGroup.add(surf);
+
+  // --- 2D polar floor (r, φ) ---
+  const floor = buildRadialPolarFloor(sample, 70, 60);
+  if (floor) radialGroup.add(floor);
+
+  // Spherical coordinate grid: constant-r rings + a few meridians (φ)
+  const gridMat = new THREE.MeshBasicMaterial({
+    color: 0x475569,
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+  });
+  for (let k = 1; k <= 4; k++) {
+    const rr = (rMax * k) / 4;
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(rr, tubeR * 0.35, 6, 64),
+      gridMat
+    );
+    // torus in xy (equator) — spherical r contour
+    radialGroup.add(ring);
+  }
+  // Meridian profiles (φ = 0, 90°, 180°, 270°) as bright tubes on the surface
+  for (let m = 0; m < 4; m++) {
+    const phi = (m / 4) * Math.PI * 2;
+    const c = Math.cos(phi), s = Math.sin(phi);
+    const pts = [];
+    for (let i = 0; i <= NP; i++) {
+      const r = (rMax * i) / NP;
+      const h = (P[i] / pMax) * hMax;
+      pts.push(new THREE.Vector3(r * c, r * s, h));
+    }
+    const col = m === 0 ? 0x86efac : 0x64748b;
+    radialGroup.add(curveTube(pts, col, tubeR * (m === 0 ? 1.0 : 0.55)));
+  }
+
+  // Baseline r-axis along +x (φ=0) on the floor
   radialGroup.add(curveTube(
-    [new THREE.Vector3(rMp, 0, 0), new THREE.Vector3(rMp, peakY, 0)],
-    0xfde047,
-    tubeR * 0.45
+    [new THREE.Vector3(0, 0, 0), new THREE.Vector3(rMax, 0, 0)],
+    0x94a3b8,
+    tubeR * 0.5
   ));
 
-  // Equatorial ring at r_mp — same radius as the bright shell of |ψ| mass
+  // Small axes: r along +x, P along +z (height of surface)
+  const dg = diagramAxes([
+    { dir: "x", min: 0, max: rMax, len: rMax, name: "r", unit: "a₀", color: 0x94a3b8, labelColor: "#cbd5e1" },
+    { dir: "z", min: 0, max: 1, len: hMax * 1.05, name: "P(r)", unit: "norm.", color: 0x4ade80, labelColor: "#86efac" },
+  ], { size: Math.max(rMax, hMax), radius: 0.0028, labelSize: 0.03, tickLabelSize: 0.018 });
+  radialGroup.add(dg);
+
+  // φ label on the equator (spherical angle)
+  const phiLab = textSprite("φ (azimuth)", {
+    size: Math.max(0.12, state.box * 0.024),
+    color: "#93c5fd",
+  });
+  phiLab.position.set(rMax * 0.55, rMax * 0.55, hMax * 0.08);
+  radialGroup.add(phiLab);
+  const rLab = textSprite("spherical r", {
+    size: Math.max(0.11, state.box * 0.022),
+    color: "#94a3b8",
+  });
+  rLab.position.set(rMax * 0.72, -rMax * 0.12, -state.box * 0.02);
+  radialGroup.add(rLab);
+
+  // Most-probable shell: elevated ring + markers
   if (rMp > 0.05) {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(rMp, Math.max(0.012, state.box * 0.0028), 10, 72),
+    const peakH = (P[sample.iPeak] / pMax) * hMax;
+    const peakRing = new THREE.Mesh(
+      new THREE.TorusGeometry(rMp, Math.max(0.02, state.box * 0.004), 10, 80),
       new THREE.MeshBasicMaterial({
-        color: 0x4ade80,
+        color: 0xfde047,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.9,
         depthWrite: false,
       })
     );
-    // Default torus lies in xy; atom uses z-up so xy is the equatorial plane — good.
-    radialGroup.add(ring);
+    peakRing.position.z = peakH;
+    radialGroup.add(peakRing);
+    // floor ring at same r (shell in the orbital plane)
+    const floorRing = new THREE.Mesh(
+      new THREE.TorusGeometry(rMp, Math.max(0.014, state.box * 0.003), 8, 72),
+      new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      })
+    );
+    radialGroup.add(floorRing);
+    // Peak ball on +x profile
+    const peakBall = new THREE.Mesh(
+      new THREE.SphereGeometry(Math.max(0.05, state.box * 0.011), 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfde047 })
+    );
+    peakBall.position.set(rMp, 0, peakH);
+    radialGroup.add(peakBall);
   }
 
-  // Title + key: P(0)=0 even when |ψ| is brightest at the nucleus
-  const el = state.element;
-  const rt = titleSprite(
-    `P(r)=4πr²R² · ${el ? el.sym + " " : ""}${subshellKey(n, l)} · r=0 at nucleus · peak r≈${rMp.toFixed(2)} a₀`,
-    Math.max(0.14, state.box * 0.028)
-  );
-  rt.position.set(rMax * 0.45, yH * 1.28, 0);
-  radialGroup.add(rt);
-  const hint = titleSprite(
-    "Peak = most probable shell (not |ψ|² max — that is at the nucleus)",
-    Math.max(0.11, state.box * 0.022)
-  );
-  hint.position.set(rMax * 0.45, yH * 1.12, 0);
-  radialGroup.add(hint);
-
-  // Radial nodes of R_nl (sign changes) on the baseline
+  // Radial nodes of R_nl on the +x baseline
   const nodeMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
   let prevS = Math.sign(radialR(n, l, 1e-4, activeZ));
   for (let i = 1; i <= NP; i++) {
@@ -4522,7 +4679,7 @@ function rebuildRadial() {
     const s = Math.sign(radialR(n, l, r, activeZ));
     if (s !== 0 && prevS !== 0 && s !== prevS) {
       const m = new THREE.Mesh(
-        new THREE.SphereGeometry(Math.max(0.04, state.box * 0.007), 10, 10),
+        new THREE.SphereGeometry(Math.max(0.035, state.box * 0.0065), 10, 10),
         nodeMat
       );
       m.position.set(r, 0, 0);
@@ -4530,6 +4687,21 @@ function rebuildRadial() {
     }
     if (s !== 0) prevS = s;
   }
+
+  // Titles
+  const el = state.element;
+  const rt = titleSprite(
+    `P(r)=4πr²R² · ${el ? el.sym + " " : ""}${subshellKey(n, l)} · spherical r · peak ≈ ${rMp.toFixed(2)} a₀`,
+    Math.max(0.13, state.box * 0.026)
+  );
+  rt.position.set(0, 0, hMax * 1.35);
+  radialGroup.add(rt);
+  const hint = titleSprite(
+    "3D ridge = P(r) spun around nucleus · floor = polar (r,φ) · peak ring = most probable shell",
+    Math.max(0.10, state.box * 0.02)
+  );
+  hint.position.set(0, 0, hMax * 1.18);
+  radialGroup.add(hint);
 }
 
 /** MO field evaluation: kind-aware multi-center LCAO */
