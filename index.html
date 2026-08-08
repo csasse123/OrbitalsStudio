@@ -640,6 +640,38 @@
   .narration .tour-body .hl-b { color: #c084fc; }
   .narration .tour-body .hl-q { color: #6ee7b7; }
 
+  /* Cloud ↔ P(r) blend card — top of Appearance so it is hard to miss */
+  .blend-card {
+    margin: 0 0 12px;
+    padding: 10px 10px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(125, 211, 252, 0.32);
+    background: linear-gradient(160deg, rgba(14, 28, 48, 0.95), rgba(10, 16, 28, 0.92));
+    box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.08), 0 8px 22px rgba(0,0,0,0.25);
+  }
+  .blend-card .blend-title {
+    font: 700 0.72rem "Space Grotesk", system-ui, sans-serif;
+    color: #7dd3fc;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .blend-card .blend-hint {
+    font: 500 0.58rem "JetBrains Mono", monospace;
+    color: #94a3b8;
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+  .blend-card .blend-ends {
+    display: flex;
+    justify-content: space-between;
+    font: 600 0.52rem "JetBrains Mono", monospace;
+    color: #64748b;
+    margin: 2px 0 2px;
+  }
+  .blend-card label.row { margin-bottom: 6px; }
+  .blend-card input[type="range"] { accent-color: #7dd3fc; }
+
   .hint {
     position: fixed;
     z-index: 5; font-size: 0.65rem; color: #3d4d60;
@@ -772,7 +804,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.1.2</div>
+<div class="build" id="build">v2.1.3</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -1012,13 +1044,8 @@
   <label class="row"><input id="axes" type="checkbox" /> axes</label>
   <label class="row"><input id="grid" type="checkbox" /> grid planes</label>
   <label class="row"><input id="radial" type="checkbox" checked /> radial P(r) 3D (spherical)</label>
-  <label class="row" id="radialOpacityRow" title="Transparency of the spherical P(r) overlay — keep low so the orbital cloud stays visible">
-    P(r) overlay opacity
-    <input id="radialOpacity" type="range" min="0.05" max="1" step="0.01" value="0.28" />
-    <span class="val" id="radialOpacityVal">0.28</span>
-  </label>
-  <div style="font:500 0.55rem JetBrains Mono,monospace;color:#94a3b8;margin:-2px 0 8px;line-height:1.35">
-    Low by default so |ψ|² cloud shows through. Raise to study the ridge alone.
+  <div style="font:500 0.55rem JetBrains Mono,monospace;color:#7dd3fc;margin:2px 0 8px;line-height:1.35">
+    Blend cloud ↔ ridge: use <b style="color:#e2e8f0">Appearance → Cloud / P(r) blend</b> (right panel).
   </div>
   <label class="row"><input id="autoRotate" type="checkbox" checked /> auto-rotate</label>
   <button type="button" class="primary" id="btnTour" title="Guided walk: nℓm → Stark → Zeeman for this element">Tour this element</button>
@@ -1029,6 +1056,19 @@
 
 <div class="panel right">
   <h2>Appearance</h2>
+  <div class="blend-card" id="blendCard">
+    <div class="blend-title">Cloud / P(r) blend</div>
+    <div class="blend-hint">Slide either to <b>0</b> to hide it completely — or raise one alone to see only the cloud or only the ridge.</div>
+    <label class="row">|ψ|² cloud
+      <input id="cloudOpacity" type="range" min="0" max="1" step="0.01" value="1" />
+      <span class="val" id="cloudOpacityVal">1.00</span>
+    </label>
+    <label class="row" id="radialOpacityRow">P(r) ridge
+      <input id="radialOpacity" type="range" min="0" max="1" step="0.01" value="0.28" />
+      <span class="val" id="radialOpacityVal">0.28</span>
+    </label>
+    <div class="blend-ends"><span>cloud only</span><span>both</span><span>ridge only</span></div>
+  </div>
   <label class="row">Density <input id="density" type="range" min="0.01" max="4" step="0.01" value="0.10" /><span class="val" id="densityVal">0.10</span></label>
   <label class="row">Exposure <input id="exposure" type="range" min="0.15" max="3" step="0.01" value="0.50" /><span class="val" id="exposureVal">0.50</span></label>
   <label class="row">Shadows <input id="shadows" type="range" min="0" max="1" step="0.01" value="0.50" /><span class="val" id="shadowsVal">0.50</span></label>
@@ -1117,7 +1157,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.1.2";
+const BUILD = "v2.1.3";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2402,12 +2442,15 @@ void main() {
 const ptFragment = /* glsl */`
 precision highp float;
 uniform float uPtOpacity;
+uniform float uCloudOpacity; // 0 = hide orbital points, 1 = full
 varying vec3 vColor;
 varying float vFade;
 void main() {
   vec2 d = gl_PointCoord - vec2(0.5);
   if (dot(d, d) > 0.25) discard; // round points
-  gl_FragColor = vec4(vColor * vFade, uPtOpacity);
+  float op = uPtOpacity * clamp(uCloudOpacity, 0.0, 1.0);
+  if (op < 0.004) discard;
+  gl_FragColor = vec4(vColor * vFade * clamp(uCloudOpacity, 0.0, 1.0), op);
 }
 `;
 
@@ -2440,6 +2483,7 @@ uniform float uMorph;
 uniform float uBox;
 uniform float uDensity;
 uniform float uExposure;
+uniform float uCloudOpacity; // 0 = hide |ψ|² cloud, 1 = full (blend with P(r) ridge)
 uniform float uShadows;    // levels: black-point anchor (0 = off, 1 = max crush)
 uniform float uHighlights; // levels: highlight gain (1 = neutral)
 uniform float uContrast;   // S-curve contrast around a mid pivot (1 = neutral)
@@ -2661,6 +2705,10 @@ void main() {
   acc = max(mix(vec3(lumaG), acc, uVibrance), vec3(0.0));
   float a = clamp(1.0 - tr, 0.0, 1.0);
   a *= 1.0 - uShadows * 0.55 * loMask;             // crushed haze truly vanishes
+  // Cloud opacity: fade |ψ|² completely for P(r)-only view
+  float cOp = clamp(uCloudOpacity, 0.0, 1.0);
+  acc *= cOp;
+  a *= cOp;
   if (a < 0.012) discard;
   gl_FragColor = vec4(acc, a);
 }
@@ -2994,6 +3042,7 @@ const volumeUniforms = {
   uBox: { value: 12 },
   uDensity: { value: 0.10 },
   uExposure: { value: 0.5 },
+  uCloudOpacity: { value: 1.0 },
   uShadows: { value: 0.5 },
   uHighlights: { value: 0.5 },
   uContrast: { value: 0.8 },
@@ -3075,6 +3124,7 @@ const ptUniforms = {
   uPtSize: { value: 0.035 },
   uPtScaleH: { value: 0.5 * innerHeight },
   uPtOpacity: { value: 0.85 },
+  uCloudOpacity: volumeUniforms.uCloudOpacity,
   uThreshold: { value: 0.012 },
   uShadows: { value: 0.5 },
   uHighlights: { value: 0.5 },
@@ -3234,8 +3284,10 @@ let state = {
   pesMode: "off", // off | morse | lj | h2osurf
   ljDimer: "ar2",
   showRadial: true,
-  /** Master opacity for the spherical P(r) overlay (surface/floor/rings). Keep low so |ψ|² shows. */
+  /** Master opacity for the spherical P(r) overlay (0 = gone, 1 = full ridge). */
   radialOpacity: 0.28,
+  /** Opacity of the |ψ|² volume + point cloud (0 = gone, 1 = full). */
+  cloudOpacity: 1.0,
 };
 
 function renderBoxHalf(n, Z = activeZ) {
@@ -4588,21 +4640,26 @@ function radialTube(points, color, radius, opacity) {
 }
 
 /**
- * Apply master overlay opacity (0..1). Layer weights keep the ridge readable
- * without blanking the orbital cloud at the default (low) setting.
+ * Apply P(r) ridge opacity (0..1). 0 = fully hidden, 1 = full spherical surface.
+ * Layer weights keep proportions at intermediate settings.
  */
 function applyRadialOverlayOpacity(master) {
-  const m = Math.max(0.02, Math.min(1, master));
+  const m = Math.max(0, Math.min(1, master));
   state.radialOpacity = m;
-  // Relative weights at master=1; at master=0.28 surface ≈ 0.22, floor ≈ 0.12
+  const showGeom = state.showRadial && state.target === "atom" && m > 0.001;
+  radialGroup.visible = showGeom;
+  if (!showGeom) {
+    markDirty();
+    return;
+  }
   const w = {
-    surface: 0.78,
-    floor: 0.42,
-    grid: 0.40,
-    line: 0.70,
-    peak: 0.95,
+    surface: 0.92,
+    floor: 0.55,
+    grid: 0.50,
+    line: 0.80,
+    peak: 1.0,
     label: 1.0,
-    body: 0.65,
+    body: 0.70,
   };
   radialGroup.traverse((o) => {
     const mat = o.material;
@@ -4614,38 +4671,57 @@ function applyRadialOverlayOpacity(master) {
       const base = w[layer] ?? mm.userData.radialBase ?? 0.6;
       mm.transparent = true;
       mm.depthWrite = false;
-      mm.opacity = Math.max(0.02, Math.min(1, m * base));
+      mm.opacity = Math.max(0, Math.min(1, m * base));
       mm.needsUpdate = true;
     }
   });
-  // Soften sprite labels (sprites use material.opacity)
   radialGroup.traverse((o) => {
     if (o.isSprite && o.material) {
       o.material.transparent = true;
-      o.material.opacity = Math.max(0.15, Math.min(1, 0.35 + 0.65 * m));
+      o.material.opacity = m < 0.02 ? 0 : Math.max(0.08, Math.min(1, 0.25 + 0.75 * m));
       o.material.depthWrite = false;
     }
   });
   markDirty();
 }
 
-function syncRadialOpacityUI() {
+/** Fade |ψ|² volume + points (+ isosurface). 0 = gone, 1 = full cloud. */
+function applyCloudOpacity(v) {
+  const c = Math.max(0, Math.min(1, v));
+  state.cloudOpacity = c;
+  if (volumeUniforms.uCloudOpacity) volumeUniforms.uCloudOpacity.value = c;
+  if (typeof isoMat !== "undefined" && isoMat) {
+    isoMat.transparent = true;
+    isoMat.opacity = 0.85 * c;
+  }
+  markDirty();
+}
+
+function syncBlendUI() {
+  const onRadial = !!(state.showRadial && state.target === "atom");
   const row = $("radialOpacityRow");
   const el = $("radialOpacity");
   const lab = $("radialOpacityVal");
-  const on = !!(state.showRadial && state.target === "atom");
   if (row) {
-    row.style.opacity = on ? "1" : "0.4";
-    row.title = on
-      ? "Transparency of the spherical P(r) overlay — low keeps the |ψ|² cloud visible"
-      : "Enable radial P(r) 3D to adjust overlay opacity";
+    row.style.opacity = onRadial ? "1" : "0.45";
+    row.title = onRadial
+      ? "0 = hide P(r) ridge completely · 1 = full spherical surface"
+      : "Turn on Display → radial P(r) 3D to show the ridge";
   }
   if (el) {
-    el.disabled = !on;
+    el.disabled = !onRadial;
     el.value = String(state.radialOpacity ?? 0.28);
   }
   if (lab) lab.textContent = Number(state.radialOpacity ?? 0.28).toFixed(2);
+
+  const cEl = $("cloudOpacity");
+  const cLab = $("cloudOpacityVal");
+  if (cEl) cEl.value = String(state.cloudOpacity ?? 1);
+  if (cLab) cLab.textContent = Number(state.cloudOpacity ?? 1).toFixed(2);
 }
+
+// Back-compat name used by rebuildRadial / init
+function syncRadialOpacityUI() { syncBlendUI(); }
 
 function rebuildRadial() {
   clearGroupDeep(radialGroup);
@@ -4792,7 +4868,7 @@ function rebuildRadial() {
   rt.position.set(0, 0, hMax * 1.35);
   radialGroup.add(rt);
   const hint = titleSprite(
-    "Cloud = |ψ|² · green ridge = spherical P(r) · drag “P(r) overlay opacity” if one hides the other",
+    "Blend: Appearance → Cloud / P(r) · either slider to 0 hides that layer",
     Math.max(0.09, state.box * 0.018)
   );
   hint.position.set(0, 0, hMax * 1.16);
@@ -6433,20 +6509,43 @@ $("radial")?.addEventListener("change", () => {
   state.showRadial = $("radial").checked;
   rebuildRadial();
   drawRadialPlot2D();
-  syncRadialOpacityUI();
+  syncBlendUI();
   markDirty();
 });
 
-$("radialOpacity")?.addEventListener("input", () => {
-  const v = parseFloat($("radialOpacity").value) || 0.28;
-  state.radialOpacity = v;
-  if ($("radialOpacityVal")) $("radialOpacityVal").textContent = v.toFixed(2);
-  if (state.showRadial && radialGroup.children.length) {
-    applyRadialOverlayOpacity(v);
-  } else {
-    syncRadialOpacityUI();
+function wireBlendSliders() {
+  const ro = $("radialOpacity");
+  const co = $("cloudOpacity");
+  if (ro && !ro._blendWired) {
+    ro._blendWired = true;
+    const applyR = () => {
+      const v = Math.max(0, Math.min(1, parseFloat(ro.value) || 0));
+      state.radialOpacity = v;
+      if ($("radialOpacityVal")) $("radialOpacityVal").textContent = v.toFixed(2);
+      if (state.showRadial && state.target === "atom") {
+        if (!radialGroup.children.length && v > 0) rebuildRadial();
+        else applyRadialOverlayOpacity(v);
+      } else {
+        radialGroup.visible = false;
+        markDirty();
+      }
+      syncBlendUI();
+    };
+    ro.addEventListener("input", applyR);
+    ro.addEventListener("change", applyR);
   }
-});
+  if (co && !co._blendWired) {
+    co._blendWired = true;
+    const applyC = () => {
+      const v = Math.max(0, Math.min(1, parseFloat(co.value) || 0));
+      applyCloudOpacity(v);
+      if ($("cloudOpacityVal")) $("cloudOpacityVal").textContent = v.toFixed(2);
+    };
+    co.addEventListener("input", applyC);
+    co.addEventListener("change", applyC);
+  }
+}
+wireBlendSliders();
 
 $("bondScale")?.addEventListener("input", () => {
   state.nucMode = "custom";
@@ -7491,17 +7590,12 @@ function initPhysicsLab() {
     markDirty();
   });
 
-  // radial checkbox + overlay opacity (idempotent; may already be bound above)
+  // radial checkbox + blend sliders (Appearance panel)
   const rad = $("radial");
-  if (rad) {
-    rad.checked = !!state.showRadial;
-  }
-  const ro = $("radialOpacity");
-  if (ro) {
-    ro.value = String(state.radialOpacity ?? 0.28);
-    if ($("radialOpacityVal")) $("radialOpacityVal").textContent = Number(state.radialOpacity ?? 0.28).toFixed(2);
-  }
-  syncRadialOpacityUI();
+  if (rad) rad.checked = !!state.showRadial;
+  wireBlendSliders();
+  applyCloudOpacity(state.cloudOpacity ?? 1);
+  syncBlendUI();
   // initial radial if on
   if (state.showRadial) {
     setTimeout(() => { rebuildRadial(); drawRadialPlot2D(); }, 100);
