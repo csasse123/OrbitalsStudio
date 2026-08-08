@@ -755,7 +755,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.5</div>
+<div class="build" id="build">v2.0.6</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -963,9 +963,9 @@
     <button type="button" data-phys="vib" title="Molecule only: stretch nuclei">Vibrate nuclei</button>
   </div>
   <div id="physLabHelp" style="margin:6px 0 8px;padding:8px 10px;border-radius:10px;border:1px solid rgba(125,211,252,0.2);background:rgba(8,20,36,0.75);font-size:0.68rem;line-height:1.45;color:#b8c8d8">
-    <b style="color:#7dd3fc">E-field (Stark)</b> slides the whole orbital along +z without changing brightness.<br>
-    Gold arrow = field direction only. Same Density/Exposure as before.<br>
-    Try H · n=2 · ℓ=1 · m=0, then move E slowly — the cloud should <b>shift</b>, not dim.
+    <b style="color:#7dd3fc">E-field</b> rigidly slides the orbital + nucleus along +z (same brightness).<br>
+    At E≈1 the shift is ~⅓ of the view box — easy to see. Gold arrow = +z only.<br>
+    <b>Vibration</b> only works on molecules (Main molecules → H₂). On H atom it does nothing.
   </div>
   <label class="row">E-field (Stark → z)
     <input id="efield" type="range" min="0" max="1" step="0.01" value="0" />
@@ -1088,7 +1088,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.5";
+const BUILD = "v2.0.6";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2218,6 +2218,10 @@ uniform float uContrast;   // contrast around a mid pivot (1 = neutral)
 uniform float uDensCut;    // auto-pop: adaptive haze floor in field units
 uniform float uVibrance;   // saturation lift (1 = neutral)
 uniform float uPhaseTime;
+uniform float uPhysMode;
+uniform float uFieldE;
+uniform float uFieldB;
+uniform float uTdseT;
 uniform float uMolMode;
 uniform float uMolField;
 uniform float uNAtoms;
@@ -2235,6 +2239,13 @@ vec3 hsl2rgb(vec3 c) {
   return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0 * c.z - 1.0));
 }
 
+// Same pure Stark shift as volume (shape only, brightness unchanged)
+vec3 starkSamplePoint(vec3 p) {
+  float F = clamp(uFieldE, 0.0, 1.0);
+  float shift = F * 0.35 * uBox; // clear shift at F=1, still in-frame
+  return p - vec3(0.0, 0.0, shift);
+}
+
 void main() {
   vec3 p = position * uBox;
   float dens, ph;
@@ -2244,7 +2255,52 @@ void main() {
     int n = int(uN + 0.5);
     int l = int(uL + 0.5);
     int m = int(uM >= 0.0 ? uM + 0.5 : uM - 0.5);
-    dens = psi_dens_phase(n, l, m, p, uZ, uBasis, ph);
+    vec3 pS = starkSamplePoint(p);
+    if (uPhysMode > 0.5 && uPhysMode < 1.5) {
+      // TDSE packet (same mix as volume)
+      float re = 0.0, im = 0.0;
+      float c0 = 0.75, c1 = 0.50, c2 = 0.30;
+      float cn = inversesqrt(c0*c0 + c1*c1 + c2*c2);
+      c0 *= cn; c1 *= cn; c2 *= cn;
+      int nn0 = n;
+      int nn1 = min(n + 1, 12);
+      int nn2 = min(n + 2, 14);
+      float t = uTdseT;
+      float ph0;
+      float d0 = psi_dens_phase(nn0, l, m, pS, uZ, uBasis, ph0);
+      float a0 = (ph0 >= 0.0 ? 1.0 : -1.0) * sqrt(max(d0, 0.0));
+      float w0 = 1.0 / max(float(nn0 * nn0), 1.0);
+      re += c0 * a0 * cos(-w0 * t * 3.0);
+      im += c0 * a0 * sin(-w0 * t * 3.0);
+      if (nn1 > nn0 && l < nn1) {
+        float ph1b;
+        float d1 = psi_dens_phase(nn1, l, m, pS, uZ, uBasis, ph1b);
+        float a1 = (ph1b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d1, 0.0));
+        float w1 = 1.0 / max(float(nn1 * nn1), 1.0);
+        re += c1 * a1 * cos(-w1 * t * 3.0);
+        im += c1 * a1 * sin(-w1 * t * 3.0);
+      }
+      if (nn2 > nn1 && l < nn2) {
+        float ph2b;
+        float d2 = psi_dens_phase(nn2, l, m, pS, uZ, uBasis, ph2b);
+        float a2 = (ph2b >= 0.0 ? 1.0 : -1.0) * sqrt(max(d2, 0.0));
+        float w2 = 1.0 / max(float(nn2 * nn2), 1.0);
+        re += c2 * a2 * cos(-w2 * t * 3.0);
+        im += c2 * a2 * sin(-w2 * t * 3.0);
+      }
+      dens = re * re + im * im;
+      ph = re;
+    } else {
+      dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph);
+      if (uFieldB > 0.01) {
+        float zn = clamp(p.z / max(uBox * 0.5, 1.0), -1.0, 1.0);
+        ph += 0.55 * uFieldB * float(m) * zn;
+      }
+      if (uPhysMode > 2.5 && uPhysMode < 3.5) {
+        float spin = tanh(p.z * 0.5 + float(m) * 0.3);
+        ph = mix(ph, spin, 0.75);
+      }
+    }
   }
   dens *= smoothstep(uDensCut * 0.5, uDensCut * 1.5, dens); // adaptive haze floor
   float w = dens / uMaxD;
@@ -2470,7 +2526,7 @@ void main() {
           // No dens*=pol, no densMul change → same brightness as F=0.
           float F = clamp(uFieldE, 0.0, 1.0);
           // Gentle in-box shift: at F=1, at most ~25% of half-box
-          float shift = F * 0.25 * uBox;
+          float shift = F * 0.35 * uBox; // same as point cloud — clear rigid shift
           vec3 pS = pos - vec3(0.0, 0.0, shift);
           dens = psi_dens_phase(n, l, m, pS, uZ, uBasis, ph1);
           psiPhase = ph1;
@@ -2962,6 +3018,10 @@ const ptUniforms = {
   uDensCut: { value: 0 },
   uVibrance: { value: 0.94 },
   uPhaseTime: volumeUniforms.uPhaseTime,
+  uPhysMode: volumeUniforms.uPhysMode,
+  uFieldE: volumeUniforms.uFieldE,
+  uFieldB: volumeUniforms.uFieldB,
+  uTdseT: volumeUniforms.uTdseT,
 };
 const ptMat = new THREE.ShaderMaterial({
   vertexShader: ptVertex,
@@ -3313,6 +3373,13 @@ function setQuantum(n, l, m, morph = true) {
   rebuildLMChips();
   rebuildPoints();
   rebuildRadial();
+  // keep nucleus aligned with current Stark shift
+  if (state.target === "atom" && nucleus) {
+    const F = volumeUniforms.uFieldE?.value || 0;
+    const shift = F * 0.35 * (state.box || 6);
+    nucleus.position.set(0, 0, shift);
+    if (nucleusGlow) nucleusGlow.position.set(0, 0, shift);
+  }
   if (state.mode === "iso") rebuildIsosurface();
 }
 
@@ -6342,8 +6409,14 @@ function initPhysicsLab() {
   wireRange("efield", "efieldVal", (v) => {
     volumeUniforms.uFieldE.value = v;
     if (state.target === "atom") volumeUniforms.uMolMode.value = 0;
-    // Brightness/mode unchanged — only the field uniform updates (shape shift in shader)
     volumeMesh.visible = true;
+    pointsMesh.visible = true;
+    // Nucleus rides with the shifted cloud (pure visual cue, same brightness)
+    if (typeof nucleus !== "undefined" && state.target === "atom") {
+      const shift = v * 0.35 * (state.box || 6);
+      nucleus.position.set(0, 0, shift);
+      if (nucleusGlow) nucleusGlow.position.set(0, 0, shift);
+    }
     updatePhysLabMeta();
     updatePhysLabHelp();
     updateFieldIndicator();
