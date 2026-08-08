@@ -615,13 +615,30 @@
   .narration {
     position: fixed;
     z-index: 9;
-    background: rgba(8,12,20,0.88); border: 1px solid var(--line);
-    border-radius: 12px; padding: 10px 14px;
-    font-size: 0.78rem; color: #c8d4e4; line-height: 1.4;
+    background: rgba(8,12,20,0.92); border: 1px solid rgba(125,211,252,0.28);
+    border-radius: 14px; padding: 12px 16px;
+    font-size: 0.78rem; color: #c8d4e4; line-height: 1.45;
     pointer-events: none;
-    opacity: 0; transition: opacity 0.4s;
+    opacity: 0; transition: opacity 0.35s;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
   }
   .narration.show { opacity: 1; }
+  .narration .tour-progress {
+    font: 600 0.62rem "JetBrains Mono", monospace;
+    color: #7dd3fc; letter-spacing: 0.04em; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .narration .tour-title {
+    font: 650 0.95rem "Space Grotesk", system-ui, sans-serif;
+    color: #f1f5f9; margin-bottom: 6px;
+  }
+  .narration .tour-body {
+    font-size: 0.78rem; color: #b8c8d8; line-height: 1.5;
+  }
+  .narration .tour-body b { color: #e2e8f0; }
+  .narration .tour-body .hl-e { color: #fbbf24; }
+  .narration .tour-body .hl-b { color: #c084fc; }
+  .narration .tour-body .hl-q { color: #6ee7b7; }
 
   .hint {
     position: fixed;
@@ -755,7 +772,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.7</div>
+<div class="build" id="build">v2.0.9</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -995,7 +1012,9 @@
   <label class="row"><input id="grid" type="checkbox" /> grid planes</label>
   <label class="row"><input id="radial" type="checkbox" checked /> radial 4πr²R²</label>
   <label class="row"><input id="autoRotate" type="checkbox" checked /> auto-rotate</label>
-  <button type="button" class="primary" id="btnTour">Tour this element</button>
+  <button type="button" class="primary" id="btnTour" title="Guided walk: nℓm → Stark → Zeeman for this element">Tour this element</button>
+  <button type="button" id="btnTourTable" style="margin-top:6px" title="Short stops on famous elements across the table">Tour famous elements</button>
+  <button type="button" id="btnTourStop" style="margin-top:6px;display:none;border-color:#f87171;color:#fca5a5">Stop tour</button>
   <button type="button" id="btnNextEl" style="margin-top:6px">Next →</button>
 </div>
 
@@ -1089,7 +1108,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.8";
+const BUILD = "v2.0.9";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -5507,96 +5526,523 @@ function rebuildIsosurface() {
 }
 
 // =============================================================================
-// Tour
+// Guided tours — narrated steps: nℓm → Stark → Zeeman (element) + famous table
 // =============================================================================
 
 let tourTimer = null;
+let tourAbort = false;
+const tourState = { running: false, name: "", step: 0, total: 0 };
 
-$("btnTour").onclick = () => {
+function stopTour(opts = {}) {
+  const soft = !!opts.soft;
   if (tourTimer) { clearTimeout(tourTimer); tourTimer = null; }
-  if (state.target === "molecule" && state.molecule) {
-    const mol = state.molecule;
-    const steps = [
-      { nuc: "separated", field: "promol", stateId: "Diss", text: `${mol.formula}: SEPARATED nuclei (R≫R_eq) — atomic limit of the correlation diagram.` },
-      { nuc: "eq", field: "auto", stateId: "X", text: `${mol.formula}: EQUILIBRIUM geometry · ground state X · active MO = HOMO on the energy ladder.` },
-      { nuc: "eq", field: "density", stateId: "X", text: `${mol.formula}: ground-state density ≈ Σ n_i |φ_i|² over occupied MOs.` },
-      { nuc: "eq", field: "auto", stateId: "A", text: `${mol.formula}: excited state A (HOMO→LUMO) — schematic T_e on the ladder.` },
-      { nuc: "united", field: "auto", stateId: "X", text: `${mol.formula}: UNITED ATOM (nuclei merged) — cloud collapses toward a single effective center.` },
-      { nuc: "eq", field: "anti", stateId: "X", text: `${mol.formula}: antibonding field — nodes between centers; occupation weakens bonding.` },
-    ];
-    let step = 0;
-    const narr = $("narration");
-    const run = () => {
-      if (step >= steps.length) { narr.classList.remove("show"); return; }
-      const t = steps[step];
-      state.nucMode = t.nuc;
-      state.bondScale = nucScaleForMode(t.nuc, 1);
-      state.molField = t.field;
-      state.elecStateId = t.stateId;
-      refreshMoleculeView(step === 0 || t.nuc !== steps[Math.max(0,step-1)].nuc);
-      narr.textContent = t.text;
-      narr.classList.add("show");
-      step++;
-      tourTimer = setTimeout(run, 4500); // Grok h2_molecule tour cadence
-    };
-    run();
-    return;
+  tourAbort = true;
+  tourState.running = false;
+  tourState.name = "";
+  tourState.step = 0;
+  tourState.total = 0;
+  const narr = $("narration");
+  if (narr && !soft) {
+    narr.classList.remove("show");
+    narr.innerHTML = "";
   }
-  const el = state.element || ELEMENTS[0];
-  const occ = state.occ || groundOccupation(el.Z);
-  // Tour: each occupied subshell at m=0, then walk m for highest-ℓ occupied, then n+1 s
+  updateTourButtons();
+}
+
+function updateTourButtons() {
+  const stop = $("btnTourStop");
+  const tour = $("btnTour");
+  const table = $("btnTourTable");
+  if (stop) stop.style.display = tourState.running ? "block" : "none";
+  if (tour) {
+    tour.disabled = false;
+    tour.textContent = tourState.running && tourState.name === "element"
+      ? "Tour running…"
+      : "Tour this element";
+  }
+  if (table) {
+    table.disabled = false;
+    table.textContent = tourState.running && tourState.name === "table"
+      ? "Table tour…"
+      : "Tour famous elements";
+  }
+}
+
+function showTourCard(step, total, title, bodyHtml) {
+  const narr = $("narration");
+  if (!narr) return;
+  narr.innerHTML =
+    `<div class="tour-progress">Step ${step} / ${total}${tourState.name ? " · " + tourState.name : ""}</div>` +
+    `<div class="tour-title">${title}</div>` +
+    `<div class="tour-body">${bodyHtml}</div>`;
+  narr.classList.add("show");
+}
+
+function tourPrepareAtomView() {
+  if (state.target === "molecule") enterAtomMode();
+  crystalGroup.visible = false;
+  volumeMesh.visible = true;
+  pointsMesh.visible = true;
+  isoMesh.visible = false;
+  volumeUniforms.uMolMode.value = 0;
+  if ($("autoRotate") && !$("autoRotate").checked) {
+    $("autoRotate").checked = true;
+    controls.autoRotate = true;
+  }
+  // Normal orbital mode (not TDSE) so Stark/Zeeman read cleanly
+  if (typeof setPhysLabMode === "function" && state.physLab && state.physLab !== "off") {
+    try { setPhysLabMode("off"); } catch (_) { /* ok */ }
+  }
+  state.zMode = "screen";
+  document.querySelectorAll("#zModeChips button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.zmode === "screen");
+  });
+}
+
+function setTourFields(E, B) {
+  const e = Math.max(0, Math.min(1, E || 0));
+  const b = Math.max(0, Math.min(1, B || 0));
+  volumeUniforms.uFieldE.value = e;
+  volumeUniforms.uFieldB.value = b;
+  if ($("efield")) { $("efield").value = e; if ($("efieldVal")) $("efieldVal").textContent = e.toFixed(2); }
+  if ($("bfield")) { $("bfield").value = b; if ($("bfieldVal")) $("bfieldVal").textContent = b.toFixed(2); }
+  if (typeof nucleus !== "undefined" && nucleus && state.target === "atom") {
+    const shift = e * 0.35 * (state.box || 6);
+    nucleus.position.set(0, 0, shift);
+    if (nucleusGlow) nucleusGlow.position.set(0, 0, shift);
+  }
+  if (typeof updateFieldIndicator === "function") updateFieldIndicator();
+  if (typeof updatePhysLabMeta === "function") updatePhysLabMeta();
+  markDirty();
+}
+
+function setTourQuantum(n, l, m, morph = true) {
+  tourPrepareAtomView();
+  setQuantum(n, l, m, morph);
+  volumeMesh.visible = true;
+  pointsMesh.visible = true;
+}
+
+function runTour(name, steps) {
+  if (!steps || !steps.length) return;
+  if (tourTimer) clearTimeout(tourTimer);
+  tourAbort = false;
+  tourState.running = true;
+  tourState.name = name;
+  tourState.total = steps.length;
+  tourState.step = 0;
+  updateTourButtons();
+
+  let i = 0;
+  const advance = () => {
+    if (tourAbort) return;
+    if (i >= steps.length) {
+      showTourCard(steps.length, steps.length, "Tour complete",
+        "You can explore freely now — change n, ℓ, m yourself, or drag E/B in Physics Lab. " +
+        "Press <b>Tour this element</b> again anytime.");
+      tourState.running = false;
+      updateTourButtons();
+      tourTimer = setTimeout(() => {
+        if (!tourState.running) {
+          const narr = $("narration");
+          if (narr) { narr.classList.remove("show"); narr.innerHTML = ""; }
+        }
+      }, 4500);
+      return;
+    }
+    const s = steps[i];
+    tourState.step = i + 1;
+    try {
+      if (typeof s.apply === "function") s.apply();
+    } catch (err) {
+      console.error("tour step", i, err);
+    }
+    showTourCard(i + 1, steps.length, s.title || `Step ${i + 1}`, s.text || "");
+    if (state.soundOn && s.sfx !== false && typeof playTone === "function") {
+      try {
+        playTone({ f: 320 + (i % 5) * 40, type: "sine", dur: 0.12, vol: 0.04, filterHz: 1800 });
+      } catch (_) { /* ignore */ }
+    }
+    i++;
+    tourTimer = setTimeout(advance, s.ms || 5200);
+  };
+  advance();
+}
+
+/** Hydrogen-focused nℓm + field story (also used as template for light elements). */
+function buildHydrogenStyleSteps(el) {
+  const sym = el.sym;
   const steps = [];
-  let lastN = 1, lastL = 0;
+  steps.push({
+    title: `${sym} — the tour begins`,
+    text: `Atomic number <b>Z = ${el.Z}</b>. The glowing cloud is the <b>probability density</b> |ψ|² — where an electron is likely to be found. We will change <span class="hl-q">n, ℓ, m</span>, then show the <span class="hl-e">Stark</span> and <span class="hl-b">Zeeman</span> effects.`,
+    ms: 5500,
+    apply: () => {
+      selectElement(el.Z, false);
+      setTourFields(0, 0);
+      setTourQuantum(1, 0, 0, false);
+    },
+  });
+  steps.push({
+    title: "n = 1, ℓ = 0, m = 0  →  1s",
+    text: `<span class="hl-q">n</span> is the principal quantum number (shell size). <b>1s</b> is the ground state: a compact sphere around the nucleus. Higher n → larger, more diffuse cloud.`,
+    ms: 5200,
+    apply: () => { setTourFields(0, 0); setTourQuantum(1, 0, 0, true); },
+  });
+  steps.push({
+    title: "n = 2, ℓ = 0  →  2s",
+    text: `Jump to the <b>n = 2</b> shell. <b>2s</b> is still spherical (ℓ = 0) but much larger, with a radial node — a thin empty shell inside the cloud.`,
+    ms: 5200,
+    apply: () => setTourQuantum(2, 0, 0, true),
+  });
+  steps.push({
+    title: "n = 2, ℓ = 1, m = 0  →  2p<sub>z</sub>",
+    text: `<span class="hl-q">ℓ</span> sets the shape. ℓ = 1 is a <b>p orbital</b>: two lobes. With <b>m = 0</b> the dumbbell lies along <b>z</b> (the quantization axis).`,
+    ms: 5500,
+    apply: () => setTourQuantum(2, 1, 0, true),
+  });
+  steps.push({
+    title: "Same shell, m = +1",
+    text: `<span class="hl-q">m</span> is the magnetic quantum number (−ℓ…+ℓ). For real/complex orbitals, changing m reorients the angular pattern. Watch the cloud reorganize at fixed n and ℓ.`,
+    ms: 5200,
+    apply: () => setTourQuantum(2, 1, 1, true),
+  });
+  steps.push({
+    title: "m = −1  (completing the p multiplet)",
+    text: `The three states m = −1, 0, +1 form the <b>2p multiplet</b> — same energy without external fields. Together they span the p subshell (6 electrons when full).`,
+    ms: 5000,
+    apply: () => setTourQuantum(2, 1, -1, true),
+  });
+  if (el.Z === 1) {
+    steps.push({
+      title: "n = 3, ℓ = 2  →  3d (preview)",
+      text: `Higher ℓ → more complex angular structure. <b>3d</b> (ℓ = 2) shows cloverleaf / doughnut shapes. Empty for H ground state, but a valid excited orbital.`,
+      ms: 5200,
+      apply: () => setTourQuantum(3, 2, 0, true),
+    });
+  }
+  // Stark
+  steps.push({
+    title: "Stark effect — electric field",
+    text: `Back to <b>2p (m = 0)</b>. An <span class="hl-e">electric field along +z</span> polarizes the atom: the whole probability cloud (and nucleus cue) <b>slides toward +z</b>. This is the Stark effect.`,
+    ms: 5000,
+    apply: () => { setTourQuantum(2, 1, 0, true); setTourFields(0, 0); },
+  });
+  steps.push({
+    title: "Raise E-field → cloud shifts +z",
+    text: `Field strength ~ <b>0.7</b>. Watch the density bulk move along the gold arrow. Shape change only — brightness stays honest. Drag <span class="hl-e">E-field</span> yourself anytime in Physics Lab.`,
+    ms: 6000,
+    apply: () => { setTourQuantum(2, 1, 0, false); setTourFields(0.72, 0); },
+  });
+  steps.push({
+    title: "Zeeman effect — magnetic field",
+    text: `Zero the E-field. Switch to <b>m = +1</b> so the magnetic moment couples clearly. A <span class="hl-b">B-field along z</span> is the Zeeman effect: energy splitting + soft stretch/precession of the cloud.`,
+    ms: 5200,
+    apply: () => { setTourFields(0, 0); setTourQuantum(2, 1, 1, true); },
+  });
+  steps.push({
+    title: "Raise B-field → Zeeman on the cloud",
+    text: `B ~ <b>0.75</b>. The density elongates along B and non-spherical lobes precess — subtler than Stark, strongest when <b>m ≠ 0</b>. Purple arrow = magnetic axis.`,
+    ms: 6000,
+    apply: () => { setTourQuantum(2, 1, 1, false); setTourFields(0, 0.75); },
+  });
+  steps.push({
+    title: `${sym} tour — fields off`,
+    text: `Fields reset. You have seen how <span class="hl-q">n</span> sizes the shell, <span class="hl-q">ℓ</span> shapes it, <span class="hl-q">m</span> orients it, <span class="hl-e">E</span> shifts it, and <span class="hl-b">B</span> magnetically tunes it.`,
+    ms: 5000,
+    apply: () => {
+      setTourFields(0, 0);
+      const def = defaultQuantumForElement(el);
+      setTourQuantum(def.n, def.l, def.m, true);
+    },
+  });
+  return steps;
+}
+
+/** Heavier elements: occupied shells, m multiplet, then Stark/Zeeman on valence. */
+function buildGeneralElementSteps(el) {
+  const occ = groundOccupation(el.Z);
+  const steps = [];
+  const occupied = [];
   for (const sh of AUFBAU) {
     if ((occ[sh] || 0) <= 0) continue;
     const n = parseInt(sh, 10);
     if (n > 20) continue;
     const Lch = sh.replace(/[0-9]/g, "");
     const l = { s: 0, p: 1, d: 2, f: 3, g: 4, h: 5 }[Lch] ?? 0;
-    lastN = n; lastL = l;
+    occupied.push({ sh, n, l, ne: occ[sh] });
+  }
+  const valence = occupied[occupied.length - 1] || { sh: "1s", n: 1, l: 0, ne: 1 };
+
+  steps.push({
+    title: `${el.sym} — guided orbital tour`,
+    text: `<b>${el.name}</b> (Z = ${el.Z}). Configuration builds by the Aufbau principle. We visit occupied subshells as |ψ|², then demonstrate <span class="hl-e">Stark</span> and <span class="hl-b">Zeeman</span> on the valence shell <b>${valence.sh}</b>.`,
+    ms: 5500,
+    apply: () => {
+      selectElement(el.Z, false);
+      setTourFields(0, 0);
+      setTourQuantum(valence.n, valence.l, 0, false);
+    },
+  });
+
+  // Cap shell walk so tour length stays friendly
+  const shellWalk = occupied.length <= 6 ? occupied : [
+    ...occupied.slice(0, 2),
+    ...occupied.slice(-3),
+  ];
+  // de-dupe
+  const seen = new Set();
+  for (const o of shellWalk) {
+    if (seen.has(o.sh)) continue;
+    seen.add(o.sh);
     steps.push({
-      n, l, m: 0,
-      text: `${el.sym} ${sh} (ℓ=${l}, m=0) — occupied (${occ[sh]} e⁻). Density |ψₙℓₘ|² with Slater Z_eff.`,
+      title: `${o.sh}  ·  n=${o.n}, ℓ=${o.l}, m=0`,
+      text: `Occupied subshell <b>${o.sh}</b> holds <b>${o.ne}</b> electron(s) in the ground configuration. Showing the hydrogenic |ψ|² shape with Slater Z<sub>eff</sub> for ${el.sym}.`,
+      ms: 4800,
+      apply: () => { setTourFields(0, 0); setTourQuantum(o.n, o.l, 0, true); },
     });
   }
-  // all m for last occupied ℓ
-  if (lastL > 0) {
-    for (let mm = -lastL; mm <= lastL; mm++) {
+
+  if (valence.l > 0) {
+    for (let mm = -valence.l; mm <= valence.l; mm++) {
       if (mm === 0) continue;
       steps.push({
-        n: lastN, l: lastL, m: mm,
-        text: `${el.sym} n=${lastN} ℓ=${lastL} m=${mm} — full magnetic multiplet for this subshell.`,
+        title: `Magnetic multiplet · m = ${mm > 0 ? "+" : ""}${mm}`,
+        text: `Same n=${valence.n}, ℓ=${valence.l}, now <span class="hl-q">m = ${mm}</span>. Different m states are degenerate until a magnetic field splits them (Zeeman).`,
+        ms: 4200,
+        apply: () => setTourQuantum(valence.n, valence.l, mm, true),
       });
     }
   }
-  if (lastN < 20) {
+
+  const starkN = Math.max(2, valence.n);
+  const starkL = Math.min(1, starkN - 1);
+  steps.push({
+    title: "Stark effect (electric field)",
+    text: `Prepare a polarizable orbital (n=${starkN}, ℓ=${starkL}, m=0). An <span class="hl-e">E-field ‖ z</span> shifts the probability cloud along +z — the Stark effect.`,
+    ms: 4800,
+    apply: () => { setTourFields(0, 0); setTourQuantum(starkN, starkL, 0, true); },
+  });
+  steps.push({
+    title: "E-field on — watch the shift",
+    text: `E ≈ 0.7. Cloud and nucleus cue move along the gold field arrow. Stronger field → larger shift.`,
+    ms: 5800,
+    apply: () => { setTourQuantum(starkN, starkL, 0, false); setTourFields(0.7, 0); },
+  });
+
+  const zeeL = Math.max(1, valence.l);
+  const zeeN = Math.max(zeeL + 1, valence.n);
+  steps.push({
+    title: "Zeeman effect (magnetic field)",
+    text: `Zero E. Use <b>m = +1</b> so the orbital magnetic moment is nonzero. A <span class="hl-b">B-field ‖ z</span> produces the Zeeman response on the density.`,
+    ms: 4800,
+    apply: () => { setTourFields(0, 0); setTourQuantum(zeeN, Math.min(zeeL, zeeN - 1), 1, true); },
+  });
+  steps.push({
+    title: "B-field on — soft Zeeman shape",
+    text: `B ≈ 0.75. Elongation along B and lobe precession — quieter than Stark, clearest for m ≠ 0.`,
+    ms: 5800,
+    apply: () => {
+      setTourQuantum(zeeN, Math.min(zeeL, zeeN - 1), 1, false);
+      setTourFields(0, 0.75);
+    },
+  });
+
+  steps.push({
+    title: `${el.sym} — tour complete`,
+    text: `Back to the valence default. Try <b>Tour famous elements</b> for a walk across the periodic table, or tweak nℓm and fields yourself.`,
+    ms: 4800,
+    apply: () => {
+      setTourFields(0, 0);
+      const def = defaultQuantumForElement(el);
+      setTourQuantum(def.n, def.l, def.m, true);
+    },
+  });
+  return steps;
+}
+
+function buildElementTourSteps(el) {
+  // H and He get the full pedagogical nℓm story; others get shell + fields
+  if (el.Z <= 2) return buildHydrogenStyleSteps(el);
+  return buildGeneralElementSteps(el);
+}
+
+function buildMoleculeTourSteps(mol) {
+  return [
+    {
+      title: `${mol.formula} — molecule tour`,
+      text: `<b>${mol.name || mol.formula}</b>. Nuclei are the balls; the cloud is the molecular electron density / MO field. We will stretch geometry and flip bonding character.`,
+      ms: 5000,
+      apply: () => {
+        selectMolecule(mol.id, true);
+        state.nucMode = "eq";
+        state.bondScale = 1;
+        state.molField = "auto";
+        state.elecStateId = "X";
+        refreshMoleculeView(true);
+      },
+    },
+    {
+      title: "Separated atoms (R ≫ R<sub>eq</sub>)",
+      text: `Pull nuclei far apart — the <b>dissociation limit</b>. The density approaches isolated atoms (correlation-diagram left side).`,
+      ms: 5200,
+      apply: () => {
+        state.nucMode = "separated";
+        state.bondScale = nucScaleForMode("separated", 1);
+        state.molField = "promol";
+        state.elecStateId = "Diss";
+        refreshMoleculeView(true);
+      },
+    },
+    {
+      title: "Equilibrium geometry",
+      text: `Back to <b>R = R<sub>eq</sub></b>, ground electronic state X. Active field follows the HOMO on the energy ladder.`,
+      ms: 5000,
+      apply: () => {
+        state.nucMode = "eq";
+        state.bondScale = 1;
+        state.molField = "auto";
+        state.elecStateId = "X";
+        refreshMoleculeView(true);
+      },
+    },
+    {
+      title: "Ground-state density",
+      text: `Show the summed occupied density ≈ Σ n<sub>i</sub>|φ<sub>i</sub>|² — where bonding electrons actually sit.`,
+      ms: 4800,
+      apply: () => {
+        state.molField = "density";
+        state.elecStateId = "X";
+        refreshMoleculeView(false);
+      },
+    },
+    {
+      title: "Excited state (HOMO → LUMO)",
+      text: `Promote schematically to state <b>A</b>. Antibonding character often rises — bonds weaken in real photochemistry.`,
+      ms: 5200,
+      apply: () => {
+        state.molField = "auto";
+        state.elecStateId = "A";
+        refreshMoleculeView(false);
+      },
+    },
+    {
+      title: "United-atom limit",
+      text: `Merge nuclei into one center — the <b>united atom</b> end of the correlation diagram. The cloud collapses toward a single effective nucleus.`,
+      ms: 5200,
+      apply: () => {
+        state.nucMode = "united";
+        state.bondScale = nucScaleForMode("united", 1);
+        state.molField = "auto";
+        state.elecStateId = "X";
+        refreshMoleculeView(true);
+      },
+    },
+    {
+      title: "Antibonding field",
+      text: `Return to equilibrium with an <b>antibonding</b> field — density nodes between centers. Contrast with the bonding HOMO view.`,
+      ms: 5000,
+      apply: () => {
+        state.nucMode = "eq";
+        state.bondScale = 1;
+        state.molField = "anti";
+        state.elecStateId = "X";
+        refreshMoleculeView(true);
+      },
+    },
+    {
+      title: `${mol.formula} — done`,
+      text: `Molecule tour finished. Try Physics Lab → <b>Vibrate nuclei</b> or <b>Δρ map</b>, or open an atom for the Stark/Zeeman story.`,
+      ms: 4500,
+      apply: () => {
+        state.nucMode = "eq";
+        state.bondScale = 1;
+        state.molField = "auto";
+        state.elecStateId = "X";
+        refreshMoleculeView(true);
+      },
+    },
+  ];
+}
+
+/** Famous stops across the table — short highlight per element. */
+const FAMOUS_TOUR = [
+  { Z: 1, blurb: "Simplest atom — the template for all of quantum chemistry." },
+  { Z: 2, blurb: "Closed 1s² shell — chemically inert, tiny hard cloud." },
+  { Z: 6, blurb: "Carbon — tetravalent backbone of organic chemistry." },
+  { Z: 8, blurb: "Oxygen — open 2p shell; life’s oxidizer." },
+  { Z: 11, blurb: "Sodium — alkali metal; large soft valence s cloud." },
+  { Z: 26, blurb: "Iron — d-block multiplet; hemoglobin & steel." },
+  { Z: 47, blurb: "Silver — noble metal, filled d shell under valence s." },
+  { Z: 79, blurb: "Gold — heavy atom where relativity paints the color." },
+  { Z: 92, blurb: "Uranium — actinide; f-electrons and nuclear fame." },
+];
+
+function buildFamousTableTourSteps() {
+  const steps = [];
+  steps.push({
+    title: "Tour of famous elements",
+    text: `Nine landmarks from <b>H → U</b>. At each stop we show the characteristic valence orbital and a one-line why it matters. Sit back — about one minute.`,
+    ms: 5000,
+    apply: () => {
+      tourPrepareAtomView();
+      setTourFields(0, 0);
+      selectElement(1, false);
+    },
+  });
+  for (const stop of FAMOUS_TOUR) {
+    const el = ELEMENTS.find((e) => e.Z === stop.Z) || ELEMENTS[0];
+    const def = defaultQuantumForElement(el);
     steps.push({
-      n: lastN + 1, l: 0, m: 0,
-      text: `${el.sym} ${(lastN + 1)}s — empty (virtual). Size ~ n²/Z_eff.`,
+      title: `${el.sym} · Z=${el.Z} · ${el.name}`,
+      text: `${stop.blurb}<br><span class="hl-q">Showing n=${def.n}, ℓ=${def.l}, m=0</span> — the default valence |ψ|² for this element.`,
+      ms: 4800,
+      apply: () => {
+        setTourFields(0, 0);
+        selectElement(el.Z, true);
+        setTourQuantum(def.n, def.l, def.m, true);
+      },
     });
-  }
-  let step = 0;
-  const narr = $("narration");
-  const run = () => {
-    if (step >= steps.length) {
-      narr.classList.remove("show");
-      return;
+    // mini shape beat for open p/d shells
+    if (def.l >= 1) {
+      steps.push({
+        title: `${el.sym} · m = +1 glimpse`,
+        text: `Same subshell, <span class="hl-q">m = +1</span> — a quick look at the magnetic multiplet before we move on.`,
+        ms: 3200,
+        apply: () => setTourQuantum(def.n, def.l, 1, true),
+      });
     }
-    const t = steps[step];
-    state.zMode = "screen";
-    document.querySelectorAll("#zModeChips button").forEach((b) => {
-      b.classList.toggle("on", b.dataset.zmode === "screen");
-    });
-    setQuantum(t.n, t.l, t.m, true);
-    volumeMesh.visible = true;
-    pointsMesh.visible = true;
-    narr.textContent = t.text;
-    narr.classList.add("show");
-    step++;
-    tourTimer = setTimeout(run, 4800); // Grok helium_orbitals tour cadence
-  };
-  run();
-};
+  }
+  steps.push({
+    title: "Table tour complete",
+    text: `From hydrogen’s 1s to uranium’s valence shell. Pick any element and hit <b>Tour this element</b> for the full nℓm + Stark + Zeeman story.`,
+    ms: 5000,
+    apply: () => {
+      setTourFields(0, 0);
+      selectElement(1, true);
+    },
+  });
+  return steps;
+}
+
+function startElementTour() {
+  if (tourState.running) { stopTour(); return; }
+  if (state.target === "molecule" && state.molecule) {
+    runTour("molecule", buildMoleculeTourSteps(state.molecule));
+    return;
+  }
+  const el = state.element || ELEMENTS[0];
+  runTour("element", buildElementTourSteps(el));
+}
+
+function startFamousTableTour() {
+  if (tourState.running) { stopTour(); return; }
+  runTour("table", buildFamousTableTourSteps());
+}
+
+$("btnTour").onclick = () => startElementTour();
+$("btnTourTable")?.addEventListener("click", () => startFamousTableTour());
+$("btnTourStop")?.addEventListener("click", () => stopTour());
 
 $("btnNextEl")?.addEventListener("click", () => {
   if (state.target === "molecule" && state.molecule) {
