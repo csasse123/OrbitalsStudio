@@ -597,7 +597,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v1.6.0</div>
+<div class="build" id="build">v1.7.0</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -762,16 +762,16 @@
 
 <div class="panel right">
   <h2>Appearance</h2>
-  <label class="row">Density <input id="density" type="range" min="0.05" max="4" step="0.01" value="1.25" /><span class="val" id="densityVal">1.25</span></label>
-  <label class="row">Exposure <input id="exposure" type="range" min="0.2" max="3" step="0.01" value="1.2" /><span class="val" id="exposureVal">1.20</span></label>
-  <label class="row">Shadows <input id="shadows" type="range" min="0" max="1" step="0.01" value="0.5" /><span class="val" id="shadowsVal">0.50</span></label>
-  <label class="row">Highlights <input id="highlights" type="range" min="0.5" max="2.5" step="0.01" value="1.1" /><span class="val" id="highlightsVal">1.10</span></label>
-  <label class="row">Contrast <input id="contrast" type="range" min="0.5" max="2" step="0.01" value="1.15" /><span class="val" id="contrastVal">1.15</span></label>
-  <label class="row">Vibrance <input id="vibrance" type="range" min="0" max="2" step="0.01" value="1.3" /><span class="val" id="vibranceVal">1.30</span></label>
+  <label class="row">Density <input id="density" type="range" min="0.01" max="4" step="0.01" value="0.10" /><span class="val" id="densityVal">0.10</span></label>
+  <label class="row">Exposure <input id="exposure" type="range" min="0.15" max="3" step="0.01" value="0.50" /><span class="val" id="exposureVal">0.50</span></label>
+  <label class="row">Shadows <input id="shadows" type="range" min="0" max="1" step="0.01" value="0.50" /><span class="val" id="shadowsVal">0.50</span></label>
+  <label class="row">Highlights <input id="highlights" type="range" min="0.3" max="2.5" step="0.01" value="0.50" /><span class="val" id="highlightsVal">0.50</span></label>
+  <label class="row">Contrast <input id="contrast" type="range" min="0.4" max="2" step="0.01" value="0.80" /><span class="val" id="contrastVal">0.80</span></label>
+  <label class="row">Vibrance <input id="vibrance" type="range" min="0" max="2" step="0.01" value="0.94" /><span class="val" id="vibranceVal">0.94</span></label>
   <label class="row">Clip plane <input id="clip" type="range" min="-1" max="1" step="0.01" value="1" /><span class="val" id="clipVal">off</span></label>
-  <label class="row">Quality <input id="quality" type="range" min="24" max="160" step="4" value="120" /><span class="val" id="qualityVal">120</span></label>
+  <label class="row">Quality <input id="quality" type="range" min="24" max="160" step="4" value="100" /><span class="val" id="qualityVal">100</span></label>
   <label class="row">Iso thresh <input id="isoThresh" type="range" min="0.001" max="0.25" step="0.001" value="0.04" /><span class="val" id="isoVal">0.04</span></label>
-  <label class="row">Points ×1k <input id="nPoints" type="range" min="20" max="400" step="10" value="160" /><span class="val" id="nPointsVal">160</span></label>
+  <label class="row">Points ×1k <input id="nPoints" type="range" min="20" max="400" step="10" value="200" /><span class="val" id="nPointsVal">200</span></label>
 
   <div class="info" id="info">…</div>
   <div class="caption" id="caption">…</div>
@@ -837,7 +837,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v1.6.0";
+const BUILD = "v1.7.0";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2516,14 +2516,14 @@ const volumeUniforms = {
   uM2: { value: 0 },
   uMorph: { value: 0 },
   uBox: { value: 12 },
-  uDensity: { value: 1.15 },
-  uExposure: { value: 1.3 },
+  uDensity: { value: 0.10 },
+  uExposure: { value: 0.5 },
   uShadows: { value: 0.5 },
-  uHighlights: { value: 1.1 },
-  uContrast: { value: 1.15 },
+  uHighlights: { value: 0.5 },
+  uContrast: { value: 0.8 },
   uAutoGain: { value: 1 },
   uDensCut: { value: 0 },
-  uVibrance: { value: 1.3 },
+  uVibrance: { value: 0.94 },
   uClip: { value: 1 },
   uSteps: { value: 110 },
   uColorMode: { value: 0 },
@@ -2596,10 +2596,10 @@ const ptUniforms = {
   uPtOpacity: { value: 0.85 },
   uThreshold: { value: 0.012 },
   uShadows: { value: 0.5 },
-  uHighlights: { value: 1.1 },
-  uContrast: { value: 1.15 },
+  uHighlights: { value: 0.5 },
+  uContrast: { value: 0.8 },
   uDensCut: { value: 0 },
-  uVibrance: { value: 1.3 },
+  uVibrance: { value: 0.94 },
 };
 const ptMat = new THREE.ShaderMaterial({
   vertexShader: ptVertex,
@@ -2757,6 +2757,148 @@ function renderBoxHalf(n, Z = activeZ) {
   return Math.max(3.2, Math.min(raw, 900));
 }
 
+// =============================================================================
+// Smart appearance presets — first-look beauty
+// H 1s baseline (user-tuned): density ~0.10, exposure 0.5, shadows/highlights 0.5,
+// contrast 0.8, vibrance 0.94, quality 100, points mid (~200k). Higher n/ℓ/Z and
+// multi-center molecules raise particle budget + quality so structure reads.
+// =============================================================================
+
+function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function smartAppearanceForAtom(n, l, m, Z) {
+  n = Math.max(1, n | 0);
+  l = Math.max(0, l | 0);
+  Z = Math.max(1, Z || 1);
+  const nScale = (n * n) / Math.max(Z, 0.5);
+
+  let density = 0.10;
+  if (n >= 3) density = 0.12 + 0.012 * Math.min(n, 12);
+  if (n >= 6) density = 0.16 + 0.01 * Math.min(n - 5, 10);
+  if (n >= 10) density = 0.22 + 0.008 * (n - 9);
+  if (l >= 2) density += 0.02 * Math.min(l, 4);
+  if (Z >= 10) density *= 0.92;
+  if (Z >= 30) density *= 0.90;
+  density = clampNum(density, 0.06, 0.55);
+
+  let exposure = 0.50;
+  if (n >= 5) exposure = 0.52 + 0.01 * Math.min(n - 4, 6);
+  if (n >= 12) exposure = 0.58;
+  exposure = clampNum(exposure, 0.45, 0.70);
+
+  const shadows = 0.50;
+  let highlights = 0.50;
+  if (n >= 4 || l >= 2) highlights = 0.55;
+  if (n >= 8) highlights = 0.58;
+  const contrast = n >= 6 ? 0.82 : 0.80;
+  const vibrance = n >= 5 ? 0.96 : 0.94;
+
+  let quality = 100;
+  if (n >= 4) quality = 108;
+  if (n >= 6) quality = 116;
+  if (n >= 9) quality = 124;
+  if (n >= 12) quality = 132;
+  if (n >= 16) quality = 140;
+  if (l >= 3) quality += 4;
+  quality = clampNum(Math.round(quality / 4) * 4, 80, 160);
+
+  // Points ×1k — mid for 1s; climb with n and ℓ so high orbitals fill in
+  let nPoints = 200
+    + Math.round(12 * (n - 1))
+    + Math.round(18 * l)
+    + Math.round(4 * Math.abs(m))
+    + Math.round(0.15 * nScale);
+  if (n >= 8) nPoints += 20;
+  if (n >= 14) nPoints += 30;
+  nPoints = clampNum(Math.round(nPoints / 10) * 10, 120, 400);
+
+  return {
+    density, exposure, shadows, highlights, contrast, vibrance,
+    clip: 1, quality, nPoints, isoThresh: 0.04,
+  };
+}
+
+function smartAppearanceForMolecule(mol) {
+  const atoms = mol?.atoms || [];
+  const nAt = atoms.length || 2;
+  const heavy = atoms.filter((a) => a.Z >= 10).length;
+  const isDiatomic = nAt === 2;
+
+  let density = 0.12;
+  if (nAt >= 3) density = 0.14;
+  if (nAt >= 6) density = 0.16;
+  if (nAt >= 10) density = 0.18;
+  if (heavy) density += 0.02;
+  density = clampNum(density, 0.08, 0.40);
+
+  let exposure = 0.50;
+  if (nAt >= 6) exposure = 0.52;
+  if (nAt >= 12) exposure = 0.55;
+
+  const shadows = 0.50;
+  const highlights = isDiatomic ? 0.52 : 0.55;
+  const contrast = 0.82;
+  const vibrance = 0.95;
+
+  let quality = 100;
+  if (nAt >= 4) quality = 108;
+  if (nAt >= 8) quality = 116;
+  if (nAt >= 12) quality = 124;
+  quality = Math.round(quality / 4) * 4;
+
+  let nPoints = 200 + 14 * Math.min(nAt, 16) + 10 * Math.min(heavy, 6);
+  if (state.molField === "anti" || state.molField === "auto") nPoints += 20;
+  nPoints = clampNum(Math.round(nPoints / 10) * 10, 160, 400);
+
+  return {
+    density, exposure, shadows, highlights, contrast, vibrance,
+    clip: 1, quality, nPoints, isoThresh: 0.04,
+  };
+}
+
+function applyAppearance(p) {
+  if (!p) return;
+  const set = (id, valId, v, fmt) => {
+    if ($(id)) { $(id).value = v; if ($(valId)) $(valId).textContent = fmt(v); }
+  };
+  set("density", "densityVal", p.density, (v) => Number(v).toFixed(2));
+  set("exposure", "exposureVal", p.exposure, (v) => Number(v).toFixed(2));
+  set("shadows", "shadowsVal", p.shadows, (v) => Number(v).toFixed(2));
+  set("highlights", "highlightsVal", p.highlights, (v) => Number(v).toFixed(2));
+  set("contrast", "contrastVal", p.contrast, (v) => Number(v).toFixed(2));
+  set("vibrance", "vibranceVal", p.vibrance, (v) => Number(v).toFixed(2));
+  set("clip", "clipVal", p.clip, (v) => (v >= 0.99 ? "off" : Number(v).toFixed(2)));
+  set("quality", "qualityVal", p.quality, (v) => String(v | 0));
+  set("nPoints", "nPointsVal", p.nPoints, (v) => String(v | 0));
+  if (p.isoThresh != null) set("isoThresh", "isoVal", p.isoThresh, (v) => Number(v).toFixed(3));
+
+  volumeUniforms.uDensity.value = p.density;
+  volumeUniforms.uExposure.value = p.exposure;
+  volumeUniforms.uShadows.value = p.shadows;
+  volumeUniforms.uHighlights.value = p.highlights;
+  volumeUniforms.uContrast.value = p.contrast;
+  volumeUniforms.uVibrance.value = p.vibrance;
+  volumeUniforms.uClip.value = p.clip;
+  ptUniforms.uShadows.value = p.shadows;
+  ptUniforms.uHighlights.value = p.highlights;
+  ptUniforms.uContrast.value = p.contrast;
+  ptUniforms.uVibrance.value = p.vibrance;
+  renderer.toneMappingExposure = 0.85 * p.exposure + 0.15;
+  applyQualityTier();
+  markDirty();
+}
+
+function applySmartAppearance() {
+  let p;
+  if (state.target === "molecule" && state.molecule) {
+    p = smartAppearanceForMolecule(state.molecule);
+  } else {
+    p = smartAppearanceForAtom(state.n, state.l, state.m, activeZ);
+  }
+  applyAppearance(p);
+  return p;
+}
+
 function setQuantum(n, l, m, morph = true) {
   // Clamp quantum numbers: 0 ≤ ℓ < n, |m| ≤ ℓ
   n = Math.max(1, Math.min(20, n | 0));
@@ -2771,6 +2913,8 @@ function setQuantum(n, l, m, morph = true) {
   state.l = l;
   state.m = m;
   refreshZeffForOrbital();
+  // Smart look for this (n,ℓ,m,Z) — soft H 1s; high-n denser particle field
+  if (state.target !== "molecule") applySmartAppearance();
   state.box = renderBoxHalf(n, activeZ);
   setVolumeBox(state.box);
 
@@ -4124,6 +4268,9 @@ function refreshMoleculeView(reframe = true) {
   rebuildMolMeshes(phys.atoms);
   pushMolUniforms(phys.atoms);
 
+  // Smart molecule look (low washout, particle budget by atom count)
+  applySmartAppearance();
+
   state.box = moleculeExtentFromAtoms(phys.atoms);
   setVolumeBox(state.box);
   rebuildAxes();
@@ -4376,7 +4523,8 @@ bindSlider("isoThresh", "isoVal", (v) => v.toFixed(3), (v) => {
   if (state.mode === "iso") rebuildIsosurface();
 });
 bindSlider("nPoints", "nPointsVal", (v) => String(v | 0), (v) => {
-  if (state.mode === "points") rebuildPoints();
+  // Volume mode also shows the particle cloud — rebuild whenever the budget changes
+  rebuildPoints();
 });
 
 $("nucleus").onchange = () => {
@@ -4573,11 +4721,14 @@ function rebuildPoints() {
     ? (x, y, z) => molFieldShaderApprox(x, y, z).dens
     : (x, y, z) => psiDensity(n, l, m, x, y, z, activeZ, basis);
   let accepted = 0, tries = 0;
-  const maxTries = Math.min(Nwant * 12, 3_000_000);
+  // Higher point budgets need real time (old 150 ms cap made 200k≈400k look identical).
+  // Scale budget with Nwant: 200k → ~320 ms, 400k → 560 ms (hard cap 700 ms).
+  const maxTries = Math.min(Nwant * 40, 8_000_000);
+  const tBudget = Math.min(700, 100 + Nwant * 0.0011);
   const tStart = performance.now();
   while (accepted < Nwant && tries < maxTries) {
     tries++;
-    if ((tries & 4095) === 0 && performance.now() - tStart > 150) break;
+    if ((tries & 4095) === 0 && performance.now() - tStart > tBudget) break;
     let x, y, z;
     const shell = molMode ? Math.random() < 0.65 : Math.random() < 0.55;
     if (shell) {
@@ -5097,12 +5248,6 @@ window.__H = {
       $("densityVal").textContent = Number(density).toFixed(2);
       volumeUniforms.uDensity.value = density;
     }
-    if (exposure != null) {
-      $("exposure").value = exposure;
-      $("exposureVal").textContent = Number(exposure).toFixed(2);
-      volumeUniforms.uExposure.value = exposure;
-      renderer.toneMappingExposure = 1.0 + 0.12 * (exposure - 1.2);
-    }
     if (shadows != null) {
       $("shadows").value = shadows;
       $("shadowsVal").textContent = Number(shadows).toFixed(2);
@@ -5201,22 +5346,11 @@ try {
   state.element = ELEMENTS[0];
   state.occ = groundOccupation(1);
 
-  $("density").value = 1.25;
-  $("densityVal").textContent = "1.25";
-  $("exposure").value = 1.2;
-  $("exposureVal").textContent = "1.20";
-  $("quality").value = 120;
-  $("qualityVal").textContent = "120";
-  $("nPoints").value = 160;
-  $("nPointsVal").textContent = "160";
-  volumeUniforms.uDensity.value = 1.25;
-  volumeUniforms.uExposure.value = 1.2;
-  volumeUniforms.uShadows.value = 0.5;
-  volumeUniforms.uHighlights.value = 1.1;
-  volumeUniforms.uContrast.value = 1.15;
-  volumeUniforms.uVibrance.value = 1.3;
-  volumeUniforms.uSteps.value = 120;
-  renderer.toneMappingExposure = 1.0;
+  // H 1s cinematic defaults; setQuantum/selectElement refine via smartAppearance
+  applyAppearance({
+    density: 0.10, exposure: 0.50, shadows: 0.50, highlights: 0.50,
+    contrast: 0.80, vibrance: 0.94, clip: 1, quality: 100, nPoints: 200, isoThresh: 0.04,
+  });
 
   buildPeriodicTable();
   buildMoleculeGrid();
