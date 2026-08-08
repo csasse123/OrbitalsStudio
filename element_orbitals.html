@@ -755,7 +755,7 @@
 </style>
 </head>
 <body>
-<div class="build" id="build">v2.0.1</div>
+<div class="build" id="build">v2.0.2</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -1087,7 +1087,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v2.0.1";
+const BUILD = "v2.0.2";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -6268,7 +6268,13 @@ function applyVibrationFrame(dt) {
 }
 
 function initPhysicsLab() {
-  state.physLab = "off";
+  if (state._physLabInited) {
+    updatePhysLabHelp();
+    updatePhysLabMeta();
+    return;
+  }
+  state._physLabInited = true;
+  state.physLab = state.physLab || "off";
   state.tdseT = 0;
   state.vibPhase = 0;
   state.vibActive = false;
@@ -6277,26 +6283,48 @@ function initPhysicsLab() {
   volumeUniforms.uFieldB.value = 0;
   volumeUniforms.uTdseT.value = 0;
 
-  $("physLabChips")?.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-phys]");
-    if (!b) return;
-    setPhysLabMode(b.dataset.phys);
-  });
+  const chips = $("physLabChips");
+  if (chips) {
+    chips.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-phys]");
+      if (!b) return;
+      e.preventDefault();
+      try { setPhysLabMode(b.dataset.phys); }
+      catch (err) { console.error("setPhysLabMode", err); }
+    });
+  } else {
+    console.error("physLabChips missing from DOM");
+  }
 
-  bindSlider("efield", "efieldVal", (v) => v.toFixed(2), (v) => {
+  // Direct listeners (do not rely only on bindSlider — must work even if bindSlider fails)
+  const wireRange = (id, valId, onVal) => {
+    const el = $(id);
+    const lab = $(valId);
+    if (!el) { console.error("missing slider", id); return; }
+    const apply = () => {
+      const v = parseFloat(el.value) || 0;
+      if (lab) lab.textContent = v.toFixed(2);
+      onVal(v);
+    };
+    el.addEventListener("input", apply);
+    el.addEventListener("change", apply);
+  };
+
+  wireRange("efield", "efieldVal", (v) => {
     volumeUniforms.uFieldE.value = v;
-    // Field effects live in the volume shader — ensure volume is on
     if (v > 0.02) {
       volumeMesh.visible = true;
+      pointsMesh.visible = true;
       state.mode = "volume";
       ptMat.opacity = 0.35;
+      isoMesh.visible = false;
     }
     updatePhysLabMeta();
     updatePhysLabHelp();
-    rebuildPoints();
+    // Don't full rebuildPoints every input tick — just re-render (shader reads uFieldE live)
     markDirty();
   });
-  bindSlider("bfield", "bfieldVal", (v) => v.toFixed(2), (v) => {
+  wireRange("bfield", "bfieldVal", (v) => {
     volumeUniforms.uFieldB.value = v;
     if (v > 0.02) {
       volumeMesh.visible = true;
@@ -6307,11 +6335,11 @@ function initPhysicsLab() {
     }
     updatePhysLabMeta();
     updatePhysLabHelp();
-    rebuildPoints();
     markDirty();
   });
-  bindSlider("vibAmp", "vibAmpVal", (v) => v.toFixed(2), (v) => {
+  wireRange("vibAmp", "vibAmpVal", (v) => {
     updatePhysLabMeta();
+    markDirty();
   });
 
   // radial checkbox already bound? ensure plot updates
@@ -6358,6 +6386,9 @@ try {
   buildPeriodicTable();
   buildMoleculeGrid();
   initDock();
+  // Wire Physics Lab, isotopes/crystals/sound, phase anim (must run or UI is dead)
+  try { initStudioExtras(); } catch (e) { console.error("initStudioExtras", e); }
+  try { initPhysicsLab(); } catch (e) { console.error("initPhysicsLab", e); }
   document.body.classList.add("mode-atom");
   selectElement(1, false);
 
@@ -6396,7 +6427,7 @@ try {
 
   animate();
   window.__H.ready = true;
-  console.log(BUILD, "ready — TDSE / Δρ / fields / spin / vib |", MOLECULES.length, "molecules");
+  console.log(BUILD, "ready — physics lab wired |", MOLECULES.length, "molecules");
 } catch (err) {
   console.error(err);
   const el = $("narration");
