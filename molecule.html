@@ -688,10 +688,69 @@
     color: #3d4d60;
     pointer-events: none;
   }
+
+  /* ---- Studio extras v1.9: isotopes, crystals, sound, HOMO-LUMO, AO view ---- */
+  .top-nav button { min-width: 7.2rem; padding: 10px 12px !important; font-size: 0.78rem !important; }
+  .top-nav button.sound-on {
+    border-color: #34d399 !important;
+    color: #6ee7b7 !important;
+    box-shadow: 0 0 16px rgba(52,211,153,0.25);
+  }
+  .homo-gap {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px dashed rgba(251,146,60,0.45);
+    background: rgba(251,146,60,0.08);
+    font: 600 0.68rem "JetBrains Mono", monospace;
+    color: #fdba74;
+    text-align: center;
+  }
+  .homo-gap .gap-val { font-size: 0.9rem; color: #fb923c; }
+  .mo-row.homo { outline: 1px solid rgba(52,211,153,0.55); }
+  .mo-row.lumo { outline: 1px solid rgba(251,146,60,0.55); }
+  .iso-list, .xtal-list { display: flex; flex-direction: column; gap: 4px; max-width: 980px; margin: 0 auto; }
+  .iso-row, .xtal-row {
+    display: grid;
+    grid-template-columns: 4.5rem 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(80,110,150,0.22);
+    background: #121a28;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--ink);
+  }
+  .iso-row:hover, .xtal-row:hover { border-color: var(--accent); }
+  .iso-row.on, .xtal-row.on {
+    border-color: #a78bfa;
+    box-shadow: 0 0 12px rgba(167,139,250,0.3);
+    background: #1a1430;
+  }
+  .iso-row .mass { font: 700 0.85rem "JetBrains Mono", monospace; color: #c4b5fd; }
+  .iso-row .meta, .xtal-row .meta { color: #8b9bb0; font-size: 0.68rem; }
+  .decay-chain {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin-top: 8px; max-width: 980px; margin-left: auto; margin-right: auto;
+    padding: 8px;
+  }
+  .decay-node {
+    padding: 6px 10px; border-radius: 8px;
+    background: #0c2a3a; border: 1px solid rgba(125,211,252,0.3);
+    font: 600 0.72rem "JetBrains Mono", monospace; color: #7dd3fc;
+  }
+  .decay-arrow { color: #64748b; font-size: 0.7rem; }
+  .ao-atom-chips .chips button { font-size: 0.68rem; }
+  body.mode-iso #atomControls, body.mode-iso #molControls,
+  body.mode-xtal #atomControls, body.mode-xtal #molControls { display: none; }
+  body.mode-iso .right .caption, body.mode-xtal .right .caption { font-style: normal; }
+
 </style>
 </head>
 <body>
-<div class="build" id="build">v1.8.0</div>
+<div class="build" id="build">v1.9.0</div>
 <div class="film-meta" id="filmMeta" style="display:none"></div>
 <div class="film-watermark" id="filmWatermark" style="display:none">H–Og · molecules · ψ · |ψ|²</div>
 <canvas id="c"></canvas>
@@ -708,17 +767,29 @@
     </div>
     <div class="top-nav" id="topNav" role="navigation" aria-label="Catalog">
       <button type="button" data-tab="pt" class="on" id="topTabPt">
-        <span class="tn-kicker">Explore</span>
+        <span class="tn-kicker">Atoms</span>
         Periodic table
       </button>
       <button type="button" data-tab="mol" id="topTabMol">
-        <span class="tn-kicker">Explore</span>
+        <span class="tn-kicker">Molecules</span>
         Main molecules
+      </button>
+      <button type="button" data-tab="iso" id="topTabIso">
+        <span class="tn-kicker">Nuclear</span>
+        Isotopes
+      </button>
+      <button type="button" data-tab="xtal" id="topTabXtal">
+        <span class="tn-kicker">Solid state</span>
+        Crystals
+      </button>
+      <button type="button" data-tab="sound" id="topTabSound" title="Toggle element sonification">
+        <span class="tn-kicker">Audio</span>
+        Sound off
       </button>
     </div>
   </div>
   <div class="welcome-help" id="welcomeHelp" role="status">
-    <span>Click <b>Periodic table</b> or <b>Main molecules</b> to start exploring — the panel auto-hides after a few seconds so the 3D view stays clear.</span>
+    <span>Click <b>Periodic table</b>, <b>Main molecules</b>, <b>Isotopes</b>, or <b>Crystals</b> to explore — panel auto-hides so the 3D view stays clear. Optional: <b>Sound</b> tones from element properties.</span>
     <button type="button" id="welcomeDismiss">Got it</button>
   </div>
 </div>
@@ -764,6 +835,7 @@
     <button type="button" data-basis="complex" class="on">Complex Y<sub>ℓm</sub></button>
     <button type="button" data-basis="real">Real (cos/sin)</button>
   </div>
+  <label class="row" style="margin-top:6px"><input id="phaseAnimAtom" type="checkbox" checked /> animate phase / face colors</label>
   <div class="config-line" id="qnLine" style="margin-top:8px">n=1, ℓ=0, m=0 · 1s</div>
   </div><!-- /atomControls -->
 
@@ -798,12 +870,24 @@
   <div class="config-line" id="stateConfig" style="margin-top:4px">config…</div>
   <p id="stateBlurb" style="font-size:0.62rem;line-height:1.35;color:#8b9bb0;margin:4px 0 6px"></p>
 
+  <h2>Atomic centers (AO)</h2>
+  <p style="font-size:0.62rem;line-height:1.35;color:#8b9bb0;margin:0 0 4px">
+    View hydrogenic probability clouds on each atom in the molecule (s / p / d / f).
+  </p>
+  <div class="chips ao-atom-chips" id="molAtomChips"></div>
+  <div class="chips" id="molAoChips" style="margin-top:4px"></div>
+
   <h2>MO energy levels</h2>
   <p style="font-size:0.62rem;line-height:1.35;color:#8b9bb0;margin:0 0 4px">
-    Click a level to view that orbital field. Green = occupied in the active electronic state.
+    Bonding / antibonding ladder. <b style="color:#6ee7b7">HOMO</b> and <b style="color:#fdba74">LUMO</b> highlighted; gap shown below.
   </p>
   <div class="mo-ladder" id="moLadder" aria-label="Molecular orbital energy levels"></div>
+  <div class="homo-gap" id="homoGap">HOMO–LUMO gap…</div>
   <div class="config-line" id="moActiveLine" style="margin-top:4px">HOMO…</div>
+  <button type="button" class="primary" id="btnReactAnim" style="margin-top:6px">Animate HOMO→LUMO promote</button>
+
+  <h2>Orbital animation</h2>
+  <label class="row"><input id="phaseAnim" type="checkbox" checked /> phase / face-color pulse (s·p·d·f)</label>
 
   <h2>Electron field</h2>
   <div class="chips" id="molFieldChips">
@@ -913,6 +997,21 @@
       <div class="mol-filters" id="molFilters"></div>
       <div class="mol-grid" id="molGrid" aria-label="Main molecules"></div>
     </div>
+    <div class="dock-pane" id="paneIso" style="display:none">
+      <div class="dock-pane-head">
+        <span class="pt-title">Isotopes · decay chains</span>
+        <span class="pt-note">select element on PT first · half-lives · modes</span>
+      </div>
+      <div class="iso-list" id="isoList"></div>
+      <div class="decay-chain" id="decayChain"></div>
+    </div>
+    <div class="dock-pane" id="paneXtal" style="display:none">
+      <div class="dock-pane-head">
+        <span class="pt-title">Crystal lattices · unit cells</span>
+        <span class="pt-note">FCC · BCC · HCP · diamond · NaCl · CsCl · ZnS · perovskite</span>
+      </div>
+      <div class="xtal-list" id="xtalList"></div>
+    </div>
   </div>
 </div>
 
@@ -947,7 +1046,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-const BUILD = "v1.8.0";
+const BUILD = "v1.9.0";
 document.getElementById("build").textContent = BUILD;
 const FILM_MODE = new URLSearchParams(location.search).has("film");
 const $ = (id) => document.getElementById(id);
@@ -2076,6 +2175,7 @@ uniform float uHighlights; // levels: highlight gain
 uniform float uContrast;   // contrast around a mid pivot (1 = neutral)
 uniform float uDensCut;    // auto-pop: adaptive haze floor in field units
 uniform float uVibrance;   // saturation lift (1 = neutral)
+uniform float uPhaseTime;
 uniform float uMolMode;
 uniform float uMolField;
 uniform float uNAtoms;
@@ -2116,9 +2216,13 @@ void main() {
   float wc = clamp(w, 0.0, 1.0);
   vec3 col;
   if (uColorMode < 0.5) {
-    // phase: warm/cool by sign(ψ), brightness by density (matches old CPU)
+    float ang = atan(p.y, p.x);
+    float face = cos(uL * ang + uPhaseTime * (0.7 + 0.25 * uL));
+    float pulse = 0.5 + 0.5 * cos(uPhaseTime * 1.3 + ph * 6.0);
     col = ph >= 0.0 ? vec3(0.984, 0.573, 0.235) : vec3(0.220, 0.741, 0.973);
-    col *= 0.35 + 0.65 * clamp(w / 0.3, 0.0, 1.0);
+    vec3 faceC = mix(vec3(0.55, 0.2, 0.95), vec3(0.2, 0.95, 0.55), 0.5 + 0.5 * face);
+    col = mix(col, faceC, 0.22 + 0.18 * clamp(uL / 3.0, 0.0, 1.0));
+    col *= (0.35 + 0.65 * clamp(w / 0.3, 0.0, 1.0)) * (0.75 + 0.35 * pulse);
   } else {
     // density: same HSL ramp the CPU sampler used
     col = hsl2rgb(vec3(0.12 - 0.12 * wc, 0.9, 0.15 + 0.55 * wc));
@@ -2188,6 +2292,7 @@ uniform float uContrast;   // S-curve contrast around a mid pivot (1 = neutral)
 uniform float uAutoGain;   // auto-pop: per-orbital gain normalization (JS probe)
 uniform float uDensCut;    // auto-pop: adaptive haze floor in field units
 uniform float uVibrance;   // saturation lift (1 = neutral)
+uniform float uPhaseTime; // animated phase / face colors
 uniform float uClip;
 uniform float uSteps;
 uniform float uColorMode;
@@ -2267,7 +2372,21 @@ void main() {
     dens *= smoothstep(uDensCut * 0.5, uDensCut * 1.5, dens);
     float w = min(dens * densMul * dt, 0.5);
 
-    vec3 col = uColorMode < 0.5 ? phaseColor(psiPhase) : inferno(1.0 - exp(-dens * densMul * 0.2));
+    vec3 col;
+    if (uColorMode < 0.5) {
+      // Animated face colors: phase lobe sign + angular faces for p/d/f + time pulse
+      float ang = atan(p.y, p.x);
+      float face = cos(float(int(uL + 0.5)) * ang + uPhaseTime * (0.7 + 0.25 * uL));
+      float pulse = 0.5 + 0.5 * cos(uPhaseTime * 1.3 + psiPhase * 6.0);
+      vec3 warmC = vec3(1.0, 0.4, 0.05);
+      vec3 coolC = vec3(0.05, 0.55, 1.0);
+      vec3 faceC = mix(vec3(0.55, 0.2, 0.95), vec3(0.2, 0.95, 0.55), 0.5 + 0.5 * face);
+      col = phaseColor(psiPhase);
+      col = mix(col, faceC, 0.22 + 0.18 * clamp(uL / 3.0, 0.0, 1.0));
+      col *= 0.75 + 0.35 * pulse;
+    } else {
+      col = inferno(1.0 - exp(-dens * densMul * 0.2));
+    }
     float depth = (length(pos - ro) - t0) / max(t1 - t0, 1e-4);
     col *= mix(1.28, 0.42, depth); // strong depth cue → 3D pop
 
@@ -2634,6 +2753,7 @@ const volumeUniforms = {
   uAutoGain: { value: 1 },
   uDensCut: { value: 0 },
   uVibrance: { value: 0.94 },
+  uPhaseTime: { value: 0 },
   uClip: { value: 1 },
   uSteps: { value: 110 },
   uColorMode: { value: 0 },
@@ -2710,6 +2830,7 @@ const ptUniforms = {
   uContrast: { value: 0.8 },
   uDensCut: { value: 0 },
   uVibrance: { value: 0.94 },
+  uPhaseTime: volumeUniforms.uPhaseTime,
 };
 const ptMat = new THREE.ShaderMaterial({
   vertexShader: ptVertex,
@@ -5342,6 +5463,12 @@ function animate() {
   lastRafT = now;
   const dt = Math.min(clock.getDelta(), 0.05);
 
+  // Phase / face-color animation for s p d f probability clouds
+  if (state.phaseAnim !== false && volumeUniforms.uPhaseTime) {
+    volumeUniforms.uPhaseTime.value = (volumeUniforms.uPhaseTime.value + dt * 0.85) % 1000;
+    needsRender = true;
+  }
+
   // morph ease-out (uniform animation → keep rendering while active)
   if (volumeUniforms.uMorph && volumeUniforms.uMorph.value > 0) {
     volumeUniforms.uMorph.value = Math.max(0, volumeUniforms.uMorph.value - dt * 1.6);
@@ -5541,6 +5668,235 @@ window.__H = {
   ready: false,
 };
 
+// STUDIO EXTRAS v1.9
+const CRYSTAL_LATTICES = [
+  { id:"sc", name:"Simple cubic", note:"Polonium CN 6", kind:"sc", a:3.2 },
+  { id:"bcc", name:"Body-centered cubic", note:"Fe Cr W CN 8", kind:"bcc", a:2.9 },
+  { id:"fcc", name:"Face-centered cubic", note:"Al Cu Au CN 12", kind:"fcc", a:3.6 },
+  { id:"hcp", name:"Hexagonal close-packed", note:"Mg Zn Ti ABAB", kind:"hcp", a:3.2 },
+  { id:"diamond", name:"Diamond cubic", note:"C Si Ge tetrahedral", kind:"diamond", a:3.6 },
+  { id:"nacl", name:"Rock salt (NaCl)", note:"FCC + octahedral holes", kind:"nacl", a:5.6 },
+  { id:"cscl", name:"CsCl", note:"Two-species cubic", kind:"cscl", a:4.1 },
+  { id:"zns", name:"Zincblende (ZnS)", note:"FCC + tet. holes", kind:"zns", a:5.4 },
+  { id:"fluorite", name:"Fluorite (CaF2)", note:"FCC + all tet. F", kind:"fluorite", a:5.5 },
+  { id:"perov", name:"Perovskite (ABO3)", note:"SrTiO3 motif", kind:"perov", a:3.9 },
+];
+const ISOTOPE_DB = {
+  1:[{A:1,sym:"1H",abund:99.98,half:"stable",mode:"-"},{A:2,sym:"2H",abund:0.02,half:"stable",mode:"-"},{A:3,sym:"3H",abund:0,half:"12.3 y",mode:"b-"}],
+  2:[{A:3,sym:"3He",abund:0.0001,half:"stable",mode:"-"},{A:4,sym:"4He",abund:99.9999,half:"stable",mode:"-"}],
+  6:[{A:12,sym:"12C",abund:98.9,half:"stable",mode:"-"},{A:13,sym:"13C",abund:1.1,half:"stable",mode:"-"},{A:14,sym:"14C",abund:0,half:"5730 y",mode:"b-"}],
+  7:[{A:14,sym:"14N",abund:99.6,half:"stable",mode:"-"},{A:15,sym:"15N",abund:0.4,half:"stable",mode:"-"}],
+  8:[{A:16,sym:"16O",abund:99.76,half:"stable",mode:"-"},{A:18,sym:"18O",abund:0.20,half:"stable",mode:"-"}],
+  11:[{A:23,sym:"23Na",abund:100,half:"stable",mode:"-"},{A:22,sym:"22Na",abund:0,half:"2.6 y",mode:"b+"}],
+  15:[{A:31,sym:"31P",abund:100,half:"stable",mode:"-"},{A:32,sym:"32P",abund:0,half:"14.3 d",mode:"b-"}],
+  19:[{A:39,sym:"39K",abund:93.3,half:"stable",mode:"-"},{A:40,sym:"40K",abund:0.012,half:"1.25 Gy",mode:"b-/EC"}],
+  26:[{A:56,sym:"56Fe",abund:91.8,half:"stable",mode:"-"},{A:57,sym:"57Fe",abund:2.1,half:"stable",mode:"-"}],
+  27:[{A:59,sym:"59Co",abund:100,half:"stable",mode:"-"},{A:60,sym:"60Co",abund:0,half:"5.27 y",mode:"b-"}],
+  53:[{A:127,sym:"127I",abund:100,half:"stable",mode:"-"},{A:131,sym:"131I",abund:0,half:"8.0 d",mode:"b-"}],
+  55:[{A:133,sym:"133Cs",abund:100,half:"stable",mode:"-"},{A:137,sym:"137Cs",abund:0,half:"30.2 y",mode:"b-"}],
+  82:[{A:206,sym:"206Pb",abund:24.1,half:"stable",mode:"-"},{A:208,sym:"208Pb",abund:52.4,half:"stable",mode:"-"}],
+  86:[{A:222,sym:"222Rn",abund:0,half:"3.8 d",mode:"a"}],
+  88:[{A:226,sym:"226Ra",abund:0,half:"1600 y",mode:"a"}],
+  90:[{A:232,sym:"232Th",abund:100,half:"14 Gy",mode:"a"}],
+  92:[{A:235,sym:"235U",abund:0.72,half:"704 My",mode:"a"},{A:238,sym:"238U",abund:99.27,half:"4.5 Gy",mode:"a"}],
+  94:[{A:239,sym:"239Pu",abund:0,half:"24 ky",mode:"a"}],
+};
+const DECAY_CHAINS = {
+  u238:{title:"U-238 series (4n+2)",steps:["U-238 a","Th-234 b","Pa-234 b","U-234 a","Th-230 a","Ra-226 a","Rn-222 a","Po-218 a","Pb-214 b","Bi-214 b","Po-214 a","Pb-210 b","Bi-210 b","Po-210 a","Pb-206"]},
+  u235:{title:"U-235 series (4n+3)",steps:["U-235 a","Th-231 b","Pa-231 a","Ac-227 b","Th-227 a","Ra-223 a","Rn-219 a","Po-215 a","Pb-211 b","Bi-211 a","Tl-207 b","Pb-207"]},
+  th232:{title:"Th-232 series (4n)",steps:["Th-232 a","Ra-228 b","Ac-228 b","Th-228 a","Ra-224 a","Rn-220 a","Po-216 a","Pb-212 b","Bi-212","Pb-208"]},
+  c14:{title:"C-14 dating",steps:["N-14(n,p)C-14","C-14 b-","N-14 stable"]},
+  k40:{title:"K-40 branching",steps:["K-40 b- -> Ca-40","K-40 EC -> Ar-40"]},
+};
+function latticeSites(kind, a=3.5) {
+  const s=[]; const add=(x,y,z,sp=0)=>s.push({x:(x-0.5)*a,y:(y-0.5)*a,z:(z-0.5)*a,species:sp});
+  if(kind==="sc"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k);}
+  else if(kind==="bcc"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k);add(0.5,0.5,0.5);}
+  else if(kind==="fcc"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k);add(0.5,0.5,0);add(0.5,0,0.5);add(0,0.5,0.5);add(0.5,0.5,1);add(0.5,1,0.5);add(1,0.5,0.5);}
+  else if(kind==="hcp"){[[0,0,0],[1,0,0],[0.5,0.866,0],[0.5,0.289,0.816],[1.5,0.289,0.816],[-0.5,0.289,0.816]].forEach(([x,y,z])=>s.push({x:(x-0.5)*a,y:(y-0.4)*a,z:(z-0.4)*a,species:0}));}
+  else if(kind==="diamond"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k);add(0.5,0.5,0);add(0.5,0,0.5);add(0,0.5,0.5);add(0.25,0.25,0.25);add(0.75,0.75,0.25);add(0.75,0.25,0.75);add(0.25,0.75,0.75);}
+  else if(kind==="nacl"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++){add(i,j,k,(i+j+k)%2);if(i<1&&j<1)add(i+0.5,j+0.5,k,(i+j+k+1)%2);if(i<1&&k<1)add(i+0.5,j,k+0.5,(i+j+k+1)%2);if(j<1&&k<1)add(i,j+0.5,k+0.5,(i+j+k+1)%2);}}
+  else if(kind==="cscl"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k,0);add(0.5,0.5,0.5,1);}
+  else if(kind==="zns"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k,0);add(0.5,0.5,0);add(0.5,0,0.5);add(0,0.5,0.5);add(0.25,0.25,0.25,1);add(0.75,0.75,0.25,1);add(0.75,0.25,0.75,1);add(0.25,0.75,0.75,1);}
+  else if(kind==="fluorite"){for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k,0);add(0.5,0.5,0);add(0.5,0,0.5);add(0,0.5,0.5);for(const t of [0.25,0.75])for(const u of [0.25,0.75])for(const v of [0.25,0.75])add(t,u,v,1);}
+  else if(kind==="perov"){add(0.5,0.5,0.5,0);for(let i=0;i<2;i++)for(let j=0;j<2;j++)for(let k=0;k<2;k++)add(i,j,k,1);add(0.5,0.5,0,2);add(0.5,0.5,1,2);add(0.5,0,0.5,2);add(0.5,1,0.5,2);add(0,0.5,0.5,2);add(1,0.5,0.5,2);}
+  return s;
+}
+const crystalGroup = new THREE.Group(); crystalGroup.visible=false;
+function ensureCrystalOnScene(){ if(!crystalGroup.parent) scene.add(crystalGroup); }
+function clearCrystal(){ while(crystalGroup.children.length){ const ch=crystalGroup.children[0]; crystalGroup.remove(ch); ch.geometry?.dispose?.(); if(ch.material&&!ch.material._shared) ch.material.dispose?.(); } }
+function showCrystal(id){
+  ensureCrystalOnScene(); clearCrystal();
+  const lat=CRYSTAL_LATTICES.find(c=>c.id===id)||CRYSTAL_LATTICES[2];
+  const sites=latticeSites(lat.kind, lat.a*1.2);
+  const mats=[0x7dd3fc,0xfb923c,0x34d399,0xc4b5fd].map(c=>{const m=new THREE.MeshBasicMaterial({color:c}); m._shared=true; return m;});
+  for(const s of sites){ const r=s.species===2?0.18:s.species===1?0.28:0.32; const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,16,16), mats[s.species%mats.length]); mesh.position.set(s.x,s.y,s.z); crystalGroup.add(mesh); }
+  const a=lat.a*1.2; const edgeMat=new THREE.LineBasicMaterial({color:0x5a6a80,transparent:true,opacity:0.55}); edgeMat._shared=true;
+  const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const pts=[]; for(const [i,j] of edges){ const A=corners[i],B=corners[j]; pts.push((A[0]-0.5)*a,(A[1]-0.5)*a,(A[2]-0.5)*a,(B[0]-0.5)*a,(B[1]-0.5)*a,(B[2]-0.5)*a); }
+  const g=new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts,3)); crystalGroup.add(new THREE.LineSegments(g, edgeMat));
+  crystalGroup.visible=true; molGroup.visible=false; nucleus.visible=nucleusGlow.visible=false;
+  volumeMesh.visible=false; pointsMesh.visible=false; isoMesh.visible=false;
+  state.box=a*1.4; setVolumeBox(state.box);
+  const d=state.box*2.0; if(!userInteracting){ camera.up.set(0,1,0); camera.position.set(d*0.9,d*0.7,d*0.9); controls.target.set(0,0,0); controls.update(); }
+  state.studioMode="xtal"; state.crystalId=lat.id;
+  $("title").innerHTML=lat.name; $("badge").textContent="Crystal | "+lat.id+" | unit cell";
+  $("caption").textContent=lat.note+" | educational unit cell (not DFT).";
+  $("info").innerHTML="<b>"+lat.name+"</b><br>"+lat.note+"<br>sites "+sites.length+"<br>a ~ "+lat.a+" A";
+  markDirty();
+}
+function buildCrystalList(){
+  const box=$("xtalList"); if(!box) return; box.innerHTML="";
+  for(const c of CRYSTAL_LATTICES){
+    const row=document.createElement("button"); row.type="button";
+    row.className="xtal-row"+(state.crystalId===c.id?" on":"");
+    row.innerHTML='<span class="mass">'+c.id+'</span><span><b>'+c.name+'</b><div class="meta">'+c.note+'</div></span><span class="meta">3D</span>';
+    row.onclick=()=>{ document.querySelectorAll(".xtal-row").forEach(r=>r.classList.remove("on")); row.classList.add("on"); showCrystal(c.id); bumpDockIdle(14000); };
+    box.appendChild(row);
+  }
+}
+function isotopesForZ(Z){
+  if(ISOTOPE_DB[Z]) return ISOTOPE_DB[Z];
+  const A0=Math.round(2.2*Z+0.01*Z*Z);
+  return [{A:A0,sym:"A~"+A0,abund:100,half:Z>82?"radioactive*":"stable*",mode:Z>82?"a/b*":"-"}];
+}
+function buildIsotopeList(Z){
+  const box=$("isoList"), chain=$("decayChain"); if(!box) return;
+  const el=ELEMENTS.find(e=>e.Z===Z)||ELEMENTS[0]; box.innerHTML="";
+  for(const iso of isotopesForZ(el.Z)){
+    const row=document.createElement("button"); row.type="button"; row.className="iso-row";
+    row.innerHTML='<span class="mass">'+iso.sym+'</span><span><b>Z='+el.Z+' '+el.sym+'</b><div class="meta">abund. '+iso.abund+'% | '+iso.mode+'</div></span><span class="meta">'+iso.half+'</span>';
+    row.onclick=()=>{ document.querySelectorAll(".iso-row").forEach(r=>r.classList.remove("on")); row.classList.add("on");
+      $("title").innerHTML=el.name+" | "+iso.sym; $("badge").textContent="Isotope | "+iso.sym+" | t1/2 "+iso.half;
+      $("caption").textContent=iso.sym+": abundance "+iso.abund+"%, mode "+iso.mode+", half-life "+iso.half+". Educational/rounded.";
+      $("info").innerHTML="<b>"+iso.sym+"</b><br>Z="+el.Z+" A="+iso.A+"<br>abund. "+iso.abund+"%<br>t1/2 "+iso.half+"<br>mode "+iso.mode;
+      if(state.soundOn) playElementTone(el.Z, iso.A); bumpDockIdle(14000); markDirty(); };
+    box.appendChild(row);
+  }
+  if(chain){ chain.innerHTML=""; const picks=[];
+    if(el.Z===92) picks.push("u238","u235"); if(el.Z===90) picks.push("th232"); if(el.Z===6) picks.push("c14"); if(el.Z===19) picks.push("k40");
+    if(!picks.length&&el.Z>=84) picks.push("u238");
+    for(const id of picks){ const ch=DECAY_CHAINS[id]; if(!ch) continue;
+      const title=document.createElement("div"); title.style.cssText="width:100%;font:600 0.65rem JetBrains Mono,monospace;color:#a78bfa;margin:6px 0 2px"; title.textContent=ch.title; chain.appendChild(title);
+      ch.steps.forEach((step,i)=>{ if(i){ const ar=document.createElement("span"); ar.className="decay-arrow"; ar.textContent="->"; chain.appendChild(ar);} const n=document.createElement("span"); n.className="decay-node"; n.textContent=step; chain.appendChild(n); });
+    }
+    if(!picks.length) chain.innerHTML='<span style="color:#8b9bb0;font-size:0.72rem">Pick U, Th, C, or K for famous chains.</span>';
+  }
+  state.studioMode="iso"; crystalGroup.visible=false; volumeMesh.visible=true; pointsMesh.visible=true;
+}
+let audioCtx=null;
+function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); return audioCtx; }
+function playElementTone(Z,A=null){
+  try{ const ctx=ensureAudio(); const ed=ELEM_DATA[Z-1]; const ie=ed?ed[0]:10;
+    const f=Math.min(1760,Math.max(55,110*Math.pow(2,(ie-5)/12)*(1+0.02*Math.log2(Z+1))));
+    const osc=ctx.createOscillator(), gain=ctx.createGain(), filt=ctx.createBiquadFilter();
+    osc.type=Z<=2?"sine":Z<=10?"triangle":"sine"; osc.frequency.value=f; filt.type="lowpass"; filt.frequency.value=800+Z*40;
+    gain.gain.value=0.0001; osc.connect(filt); filt.connect(gain); gain.connect(ctx.destination);
+    const t0=ctx.currentTime; gain.gain.exponentialRampToValueAtTime(0.12,t0+0.03); gain.gain.exponentialRampToValueAtTime(0.0001,t0+0.55);
+    osc.start(t0); osc.stop(t0+0.7);
+  }catch(e){ console.warn("audio",e); }
+}
+function setSoundOn(on){ state.soundOn=!!on; const b=$("topTabSound"); if(b){ b.classList.toggle("sound-on",state.soundOn); b.innerHTML='<span class="tn-kicker">Audio</span>Sound '+(state.soundOn?"on":"off"); } if(on) ensureAudio(); }
+function valenceAOSuggestions(Z){
+  if(Z<=2) return [{n:1,l:0}]; if(Z<=10) return [{n:2,l:0},{n:2,l:1}]; if(Z<=18) return [{n:3,l:0},{n:3,l:1}];
+  if(Z<=36) return [{n:4,l:0},{n:3,l:2},{n:4,l:1}]; if(Z<=54) return [{n:5,l:0},{n:4,l:2},{n:5,l:1}]; return [{n:6,l:0},{n:4,l:3},{n:5,l:2}];
+}
+function renderMolAtomChips(mol){
+  const box=$("molAtomChips"), aoBox=$("molAoChips"); if(!box||!mol) return; box.innerHTML=""; if(aoBox) aoBox.innerHTML="";
+  const all=document.createElement("button"); all.type="button"; all.textContent="Molecule field"; all.className=!state.atomFocus?"on":"";
+  all.onclick=()=>{ state.atomFocus=null; volumeUniforms.uMolMode.value=1; refreshMoleculeView(false); renderMolAtomChips(mol); }; box.appendChild(all);
+  mol.atoms.forEach((a,i)=>{ const b=document.createElement("button"); b.type="button"; b.textContent=a.sym+(i+1);
+    if(state.atomFocus&&state.atomFocus.index===i) b.classList.add("on");
+    b.onclick=()=>{ const sug=valenceAOSuggestions(a.Z)[0]; state.atomFocus={index:i,n:sug.n,l:sug.l,m:0}; applyAtomFocusOrbital(); renderMolAtomChips(mol); }; box.appendChild(b); });
+  if(state.atomFocus&&aoBox){ const a=mol.atoms[state.atomFocus.index]; const n0=valenceAOSuggestions(a.Z)[0].n;
+    for(let l=0;l<Math.min(n0,4);l++){ const b=document.createElement("button"); b.type="button"; b.textContent=n0+"spdf"[l];
+      b.title=["s spherical","p dumbbell faces","d clover/dz2","f multipole faces"][l];
+      if(state.atomFocus.n===n0&&state.atomFocus.l===l) b.classList.add("on");
+      b.onclick=()=>{ state.atomFocus.n=n0; state.atomFocus.l=l; state.atomFocus.m=0; applyAtomFocusOrbital(); renderMolAtomChips(mol); }; aoBox.appendChild(b); }
+    for(let mm=-state.atomFocus.l; mm<=state.atomFocus.l; mm++){ const b=document.createElement("button"); b.type="button"; b.textContent="m="+mm;
+      if(state.atomFocus.m===mm) b.classList.add("on"); b.onclick=()=>{ state.atomFocus.m=mm; applyAtomFocusOrbital(); renderMolAtomChips(mol); }; aoBox.appendChild(b); }
+  }
+}
+function applyAtomFocusOrbital(){
+  const mol=state.molecule; if(!mol||!state.atomFocus) return;
+  const a=mol.atoms[state.atomFocus.index]; const n=state.atomFocus.n, l=state.atomFocus.l, m=state.atomFocus.m||0;
+  crystalGroup.visible=false; volumeUniforms.uMolMode.value=0;
+  activeZ=slaterZeff(a.Z,n,l,groundOccupation(a.Z));
+  state.n=n; state.l=l; state.m=m;
+  volumeUniforms.uN.value=n; volumeUniforms.uL.value=l; volumeUniforms.uM.value=m; volumeUniforms.uZ.value=activeZ;
+  nucleus.visible=true; nucleus.position.set(0,0,0); nucleusGlow.position.set(0,0,0); molGroup.visible=true;
+  const ox=a.x, oy=a.y, oz=a.z;
+  rebuildMolMeshes(mol.atoms.map(at=>({sym:at.sym,Z:at.Z,x:at.x-ox,y:at.y-oy,z:at.z-oz})));
+  state.box=renderBoxHalf(n,activeZ); setVolumeBox(state.box); controls.target.set(0,0,0);
+  const d=state.box*2.2; camera.position.set(d*1.1,d*0.4,d*0.3);
+  volumeMesh.visible=true; pointsMesh.visible=true;
+  $("title").innerHTML=mol.formula+" | "+a.sym+" "+n+"spdf"[l]+" m="+m;
+  $("badge").textContent="Atomic AO on "+a.sym+" | Zeff="+activeZ.toFixed(2);
+  $("caption").textContent="Hydrogenic |psi|^2 on "+a.sym+" inside "+mol.formula+". l="+l+" with animated phase face colors.";
+  applySmartAppearance(); rebuildPoints(); markDirty();
+}
+function updateHomoGap(phys){
+  const el=$("homoGap"); if(!el||!phys) return; const h=phys.homo, l=phys.lumo;
+  if(!h||!l){ el.innerHTML="HOMO-LUMO gap | n/a"; return; }
+  const gap=Math.max(0.01,l.E-h.E);
+  el.innerHTML='HOMO <b style="color:#6ee7b7">'+h.label+'</b> -> LUMO <b style="color:#fdba74">'+l.label+'</b><br><span class="gap-val">dE ~ '+gap.toFixed(2)+' eV</span> | '+(gap*1240).toFixed(0)+' nm (schematic)';
+}
+let reactAnimTimer=null;
+function animateHomoLumoPromote(){
+  const phys=state.molPhys; if(!phys?.homo||!phys?.lumo) return; const narr=$("narration");
+  const steps=[
+    {stateId:"X", mo:phys.homo.id, text:"Ground | density on HOMO ("+phys.homo.label+")."},
+    {stateId:"X", mo:phys.homo.id, text:"Absorbing a photon... promoting HOMO -> LUMO."},
+    {stateId:"A", mo:phys.lumo.id, text:"Excited | LUMO ("+phys.lumo.label+"). Gap ~ "+(phys.lumo.E-phys.homo.E).toFixed(2)+" eV."},
+    {stateId:"A", mo:phys.lumo.id, text:"Antibonding character rises - bonds often weaken."},
+    {stateId:"X", mo:phys.homo.id, text:"Relaxation toward the ground configuration (schematic)."},
+  ];
+  let i=0; if(reactAnimTimer) clearTimeout(reactAnimTimer);
+  const run=()=>{ if(i>=steps.length){ narr?.classList.remove("show"); return; }
+    const s=steps[i++]; state.elecStateId=s.stateId; state.activeMOId=s.mo; state.molField="auto"; state.atomFocus=null;
+    refreshMoleculeView(false); if(narr){ narr.textContent=s.text; narr.classList.add("show"); }
+    reactAnimTimer=setTimeout(run,2200); }; run();
+}
+(function patchStudio(){
+  const origSetDockTab=setDockTab;
+  setDockTab=function(tab, opts={}){
+    const open=opts.open!==false;
+    if(tab==="sound"){ setSoundOn(!state.soundOn); return; }
+    dockCurrentTab=["pt","mol","iso","xtal"].includes(tab)?tab:"pt";
+    for(const [k,id] of Object.entries({pt:"panePt",mol:"paneMol",iso:"paneIso",xtal:"paneXtal"})){
+      const el=$(id); if(el) el.style.display=k===dockCurrentTab?"block":"none";
+    }
+    document.querySelectorAll("#topNav button[data-tab]").forEach(b=>{ if(b.dataset.tab==="sound") return; b.classList.toggle("on", b.dataset.tab===dockCurrentTab); });
+    document.body.classList.remove("mode-iso","mode-xtal"); crystalGroup.visible=false;
+    if(dockCurrentTab==="iso"){ document.body.classList.add("mode-iso"); const Z=state.element?.Z||1;
+      if(state.target!=="atom") selectElement(Z,false); else { volumeMesh.visible=true; pointsMesh.visible=true; molGroup.visible=false; }
+      buildIsotopeList(Z);
+    } else if(dockCurrentTab==="xtal"){ document.body.classList.add("mode-xtal"); buildCrystalList(); showCrystal(state.crystalId||"fcc"); }
+    else if(dockCurrentTab==="pt"){ if(state.mode==="volume"||state.mode==="points"){ volumeMesh.visible=true; pointsMesh.visible=true; } nucleus.visible=$("nucleus")?.checked!==false && state.target==="atom"; }
+    const label=$("dockBarLabel"); if(label) label.textContent=({pt:"Periodic table | H-Og",mol:"Main molecules | catalog",iso:"Isotopes | decay chains",xtal:"Crystal lattices | unit cells"})[dockCurrentTab];
+    if(open) setDockOpen(true);
+  };
+  const origSelectElement=selectElement;
+  selectElement=function(Z, morph=true){ crystalGroup.visible=false; state.atomFocus=null; origSelectElement(Z, morph); if(state.soundOn) playElementTone(Z); if(dockCurrentTab==="iso") buildIsotopeList(Z); };
+  const origUpdateMol=updateMoleculePanels;
+  updateMoleculePanels=function(mol, phys){ origUpdateMol(mol, phys); renderMolAtomChips(mol); updateHomoGap(phys);
+    requestAnimationFrame(()=>{ const box=$("moLadder"); if(!box||!phys) return;
+      box.querySelectorAll(".mo-row").forEach(row=>{ row.classList.remove("homo","lumo");
+        if(phys.homo&&row.dataset.moid===phys.homo.id) row.classList.add("homo");
+        if(phys.lumo&&row.dataset.moid===phys.lumo.id) row.classList.add("lumo"); }); }); };
+  const origEnter=enterAtomMode;
+  enterAtomMode=function(){ origEnter(); crystalGroup.visible=false; state.atomFocus=null; };
+})();
+function initStudioExtras(){
+  ensureCrystalOnScene(); state.soundOn=false; state.atomFocus=null; state.crystalId="fcc"; state.studioMode="atom"; state.phaseAnim=true;
+  $("btnReactAnim")?.addEventListener("click", ()=>animateHomoLumoPromote());
+  const syncPhase=src=>{ state.phaseAnim=!!src.checked; if($("phaseAnim")&&src!==$("phaseAnim")) $("phaseAnim").checked=state.phaseAnim; if($("phaseAnimAtom")&&src!==$("phaseAnimAtom")) $("phaseAnimAtom").checked=state.phaseAnim; };
+  $("phaseAnim")?.addEventListener("change", e=>syncPhase(e.target));
+  $("phaseAnimAtom")?.addEventListener("change", e=>syncPhase(e.target));
+  buildCrystalList();
+}
+
 // ---------- Init: Hydrogen 1s, periodic table H–Og ----------
 try {
   state.mode = "volume";
@@ -5596,7 +5952,7 @@ try {
 
   animate();
   window.__H.ready = true;
-  console.log(BUILD, "ready — atoms H→Og +", MOLECULES.length, "main molecules");
+  console.log(BUILD, "ready — atoms + molecules + isotopes + crystals + sound |", MOLECULES.length, "molecules");
 } catch (err) {
   console.error(err);
   const el = $("narration");
